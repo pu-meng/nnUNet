@@ -515,10 +515,13 @@ class nnUNetTrainer(object):
     def print_to_log_file(self, *args, also_print_to_console=True, add_timestamp=True):
         if self.local_rank == 0:
             timestamp = time()
-            dt_object = datetime.fromtimestamp(timestamp)
+            dt_object = datetime.fromtimestamp(timestamp).replace(microsecond=0) #去除掉时间戳的维秒
 
+            ts_str = f"{dt_object}:"
             if add_timestamp:
-                args = (f"{dt_object}:", *args)
+                args = (ts_str, *args)
+            else:
+                args = (" " * len(ts_str), *args)
 
             successful = False
             max_attempts = 5
@@ -1012,7 +1015,7 @@ class nnUNetTrainer(object):
         self.print_to_log_file('')
         self.print_to_log_file(f'Epoch {self.current_epoch}')
         self.print_to_log_file(
-            f"Current learning rate: {np.round(self.optimizer.param_groups[0]['lr'], decimals=5)}")
+            f"Current learning rate: {np.round(self.optimizer.param_groups[0]['lr'], decimals=5)}", add_timestamp=False)
         # lrs are the same for all workers so we don't need to gather them in case of DDP training
         self.logger.log('lrs', self.optimizer.param_groups[0]['lr'], self.current_epoch)
 
@@ -1169,12 +1172,12 @@ class nnUNetTrainer(object):
     def on_epoch_end(self):
         self.logger.log('epoch_end_timestamps', time(), self.current_epoch)
 
-        self.print_to_log_file('train_loss', np.round(self.logger.get_value('train_losses', step=-1), decimals=4))
-        self.print_to_log_file('val_loss', np.round(self.logger.get_value('val_losses', step=-1), decimals=4))
+        self.print_to_log_file('train_loss', np.round(self.logger.get_value('train_losses', step=-1), decimals=4), add_timestamp=False)
+        self.print_to_log_file('val_loss', np.round(self.logger.get_value('val_losses', step=-1), decimals=4), add_timestamp=False)
         self.print_to_log_file('Pseudo dice', [np.round(i, decimals=4) for i in
-                                               self.logger.get_value('dice_per_class_or_region', step=-1)])
+                                               self.logger.get_value('dice_per_class_or_region', step=-1)], add_timestamp=False)
         self.print_to_log_file(
-            f"Epoch time: {np.round(self.logger.get_value('epoch_end_timestamps', step=-1) - self.logger.get_value('epoch_start_timestamps', step=-1), decimals=2)} s")
+            f"Epoch time: {np.round(self.logger.get_value('epoch_end_timestamps', step=-1) - self.logger.get_value('epoch_start_timestamps', step=-1), decimals=2)} s", add_timestamp=False)
 
         # handling periodic checkpointing
         current_epoch = self.current_epoch
@@ -1184,7 +1187,7 @@ class nnUNetTrainer(object):
         # handle 'best' checkpointing. ema_fg_dice is computed by the logger and can be accessed like this
         if self._best_ema is None or self.logger.get_value('ema_fg_dice', step=-1) > self._best_ema:
             self._best_ema = self.logger.get_value('ema_fg_dice', step=-1)
-            self.print_to_log_file(f"Yayy! New best EMA pseudo Dice: {np.round(self._best_ema, decimals=4)}")
+            self.print_to_log_file(f"Yayy! New best EMA pseudo Dice: {np.round(self._best_ema, decimals=4)}", add_timestamp=False)
             self.save_checkpoint(join(self.output_folder, 'checkpoint_best.pth'))
 
         if self.local_rank == 0:
