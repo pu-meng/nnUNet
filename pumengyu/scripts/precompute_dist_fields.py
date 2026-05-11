@@ -13,12 +13,11 @@
 """
 
 import argparse
-import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
-from batchgenerators.utilities.file_and_folder_operations import load_json, join
+from batchgenerators.utilities.file_and_folder_operations import load_json
 
 from nnunetv2.paths import nnUNet_preprocessed
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
@@ -27,15 +26,35 @@ from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 from pumengyu.tools.dist_field import compute_surface_distance_field
 
 
+def _load_seg(data_dir: str, case_id: str) -> np.ndarray:
+    """Load segmentation for one case, supporting .b2nd and .npz formats."""
+    import os
+    seg_b2nd = os.path.join(data_dir, f'{case_id}_seg.b2nd')
+    seg_npz  = os.path.join(data_dir, f'{case_id}.npz')
+    seg_npy  = os.path.join(data_dir, f'{case_id}.npy')
+
+    if os.path.isfile(seg_b2nd):
+        import blosc2
+        arr = blosc2.open(urlpath=seg_b2nd, mode='r')[:]
+        return arr[0].astype(np.int32)   # (H, W, D)
+
+    if os.path.isfile(seg_npz):
+        arr = np.load(seg_npz)['data']
+        return arr[-1].astype(np.int32)  # last channel is seg
+
+    if os.path.isfile(seg_npy):
+        arr = np.load(seg_npy, mmap_mode='r')
+        return arr[-1].astype(np.int32)
+
+    raise FileNotFoundError(f'No seg file found for case {case_id} in {data_dir}')
+
+
 def _process_case(args):
-    npz_path, out_path, num_classes, spacing = args
-    data = np.load(npz_path)
-    # nnUNet v2: 'data' key contains image+seg concatenated; seg is last channel
-    arr = data['data']
-    seg = arr[-1].astype(np.int32)
+    data_dir, case_id, out_path, num_classes, spacing = args
+    seg = _load_seg(data_dir, case_id)
     dist = compute_surface_distance_field(seg, num_classes=num_classes, spacing=spacing)
     np.save(out_path, dist)
-    return os.path.basename(npz_path)
+    return case_id
 
 
 def main():
@@ -56,23 +75,24 @@ def main():
     spacing = tuple(config.spacing)
 
     dataset_json = load_json(str(preprocessed_dir / 'dataset.json'))
-    num_classes = len(dataset_json['labels'])  # includes background
+    num_classes = len(dataset_json['labels'])
 
     data_dir = preprocessed_dir / f'nnUNetPlans_{args.config}'
-    npz_files = sorted(data_dir.glob('*.npz'))
+
+    # 用 .pkl 文件枚举所有 case（每种格式都有 .pkl）
+    case_ids = sorted(p.stem for p in data_dir.glob('*.pkl'))
 
     tasks = []
-    for npz in npz_files:
-        case_id = npz.stem
+    for case_id in case_ids:
         out_path = data_dir / f'{case_id}_dist.npy'
         if not args.overwrite and out_path.exists():
             continue
-        tasks.append((str(npz), str(out_path), num_classes, spacing))
+        tasks.append((str(data_dir), case_id, str(out_path), num_classes, spacing))
 
     print(f'Dataset : {dataset_name}')
     print(f'Config  : {args.config}  spacing={spacing}')
     print(f'Classes : {num_classes}')
-    print(f'Cases   : {len(npz_files)} total, {len(tasks)} to compute')
+    print(f'Cases   : {len(case_ids)} total, {len(tasks)} to compute')
 
     if not tasks:
         print('All distance fields already exist. Use --overwrite to recompute.')
