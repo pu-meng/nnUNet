@@ -58,6 +58,10 @@ class BATsegNet(nn.Module):
         self._dec_features: torch.Tensor | None = None
         decoder.stages[-1].register_forward_hook(self._capture_hook)
 
+    @property
+    def decoder(self):
+        return self.backbone.decoder
+
     def _capture_hook(self, module, inp, out):
         self._dec_features = out
 
