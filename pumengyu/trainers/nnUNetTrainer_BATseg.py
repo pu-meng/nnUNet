@@ -25,11 +25,40 @@ import torch
 import torch.nn as nn
 from torch import autocast
 
+import nnunetv2.training.nnUNetTrainer.nnUNetTrainer as _trainer_module
+from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
 from nnunetv2.utilities.helpers import dummy_context
 
 from pumengyu.tools.dist_field import compute_batch_distance_field
+
+
+# ──────────────────────── DataLoader with EDT ────────────────────────
+
+class BATsegDataLoader(nnUNetDataLoader):
+    """
+    Computes distance fields inside worker processes so EDT runs in parallel
+    with GPU forward passes in the main process.
+
+    EDT params are set via the class variable _dist_params BEFORE worker
+    processes fork, so children inherit the populated dict.
+    """
+    _dist_params: dict = {'num_classes': None, 'spacing': None}
+
+    def generate_train_batch(self) -> dict:
+        batch = super().generate_train_batch()
+        num_classes = self._dist_params['num_classes']
+        if num_classes is None:
+            return batch
+        target = batch['target']
+        target_full = target[0] if isinstance(target, list) else target
+        batch['dist_field'] = compute_batch_distance_field(
+            target_full,
+            num_classes=num_classes,
+            spacing=self._dist_params['spacing'],
+        )
+        return batch
 
 
 # ──────────────────────── Network Wrapper ────────────────────────
@@ -97,7 +126,6 @@ class nnUNetTrainer_BATseg(nnUNetTrainer):
 
     def initialize(self):
         super().initialize()
-        # Cache spacing once; used every train_step for EDT sampling
         self._spacing = tuple(self.configuration_manager.spacing)
 
     @staticmethod
@@ -117,6 +145,25 @@ class nnUNetTrainer_BATseg(nnUNetTrainer):
         )
         return BATsegNet(backbone)
 
+    def get_dataloaders(self):
+        # Set EDT params on the class BEFORE worker processes fork, so children
+        # inherit the populated dict and compute distance fields autonomously.
+        BATsegDataLoader._dist_params = {
+            'num_classes': self.label_manager.num_segmentation_heads,
+            'spacing': self._spacing,
+        }
+
+        # Temporarily replace nnUNetDataLoader in the trainer module's namespace
+        # so that super().get_dataloaders() constructs BATsegDataLoader instances.
+        _original = _trainer_module.nnUNetDataLoader
+        _trainer_module.nnUNetDataLoader = BATsegDataLoader
+        try:
+            mt_gen_train, mt_gen_val = super().get_dataloaders()
+        finally:
+            _trainer_module.nnUNetDataLoader = _original
+
+        return mt_gen_train, mt_gen_val
+
     def train_step(self, batch: dict) -> dict:
         data = batch['data'].to(self.device, non_blocking=True)
         target = batch['target']
@@ -125,14 +172,16 @@ class nnUNetTrainer_BATseg(nnUNetTrainer):
         else:
             target = target.to(self.device, non_blocking=True)
 
-        # Distance field is computed from the *augmented* full-resolution target
-        # (aug has already happened inside the dataloader), so it stays in sync.
-        target_full = target[0] if isinstance(target, list) else target
-        gt_dist = compute_batch_distance_field(
-            target_full,
-            num_classes=self.label_manager.num_segmentation_heads,
-            spacing=self._spacing,
-        )
+        # EDT precomputed in worker process; fall back to sync only for the
+        # first few cached batches that were produced before patching.
+        gt_dist = batch.get('dist_field')
+        if gt_dist is None:
+            target_full = target[0] if isinstance(target, list) else target
+            gt_dist = compute_batch_distance_field(
+                target_full.detach().cpu(),
+                num_classes=self.label_manager.num_segmentation_heads,
+                spacing=self._spacing,
+            )
 
         self.optimizer.zero_grad(set_to_none=True)
         with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
