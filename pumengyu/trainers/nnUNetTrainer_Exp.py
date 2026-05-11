@@ -5,6 +5,7 @@ from datetime import datetime
 import torch
 from batchgenerators.utilities.file_and_folder_operations import join, maybe_mkdir_p
 
+from nnunetv2.paths import nnUNet_raw
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 
 EXP_ROOT = "/home/PuMengYu/nnUNet_workspace/experiments"
@@ -52,3 +53,13 @@ class nnUNetTrainer_Exp(nnUNetTrainer):
         if not resume_ts:
             with open(join(exp_dir, "cmd.txt"), "w") as f:
                 f.write(" ".join(sys.argv) + "\n")
+
+    def perform_actual_validation(self, save_probabilities: bool = False):
+        super().perform_actual_validation(save_probabilities)
+        if self.local_rank == 0:
+            from pumengyu.tools.analyasis.auto_report import run_auto_report
+            run_auto_report(
+                fold_dir=self.output_folder,
+                gt_dir=join(self.preprocessed_dataset_folder_base, "gt_segmentations"),
+                img_dir=join(str(nnUNet_raw), self.plans_manager.dataset_name, "imagesTr"),
+            )
