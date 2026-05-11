@@ -23,7 +23,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
+from torch import autocast
 
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
