@@ -25,8 +25,10 @@ import torch
 import torch.nn as nn
 from torch import autocast
 
+import os
+
 import nnunetv2.training.nnUNetTrainer.nnUNetTrainer as _trainer_module
-from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader
+from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader, crop_and_pad_nd
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.get_network_from_plans import get_network_from_plans
 from nnunetv2.utilities.helpers import dummy_context
@@ -34,31 +36,100 @@ from nnunetv2.utilities.helpers import dummy_context
 from pumengyu.tools.dist_field import compute_batch_distance_field
 
 
-# ──────────────────────── DataLoader with EDT ────────────────────────
+# ──────────────────────── DataLoader with precomputed EDT ────────────────────────
 
 class BATsegDataLoader(nnUNetDataLoader):
     """
-    Computes distance fields inside worker processes so EDT runs in parallel
-    with GPU forward passes in the main process.
+    Loads precomputed distance fields (<case_id>_dist.npy) from disk and
+    crops them with the same bbox as the image/seg.  No online EDT needed.
 
-    EDT params are set via the class variable _dist_params BEFORE worker
-    processes fork, so children inherit the populated dict.
+    Falls back to online EDT if the precomputed file is missing.
+    Run pumengyu/scripts/precompute_dist_fields.py once before training.
     """
+    # Set by get_dataloaders before worker processes fork.
     _dist_params: dict = {'num_classes': None, 'spacing': None}
 
     def generate_train_batch(self) -> dict:
-        batch = super().generate_train_batch()
+        selected_keys = self.get_indices()
+        import torch
+        from threadpoolctl import threadpool_limits
+
+        data_all = None
+        seg_all = None
+        dist_all = None
+
         num_classes = self._dist_params['num_classes']
-        if num_classes is None:
-            return batch
-        target = batch['target']
-        target_full = target[0] if isinstance(target, list) else target
-        batch['dist_field'] = compute_batch_distance_field(
-            target_full,
-            num_classes=num_classes,
-            spacing=self._dist_params['spacing'],
-        )
-        return batch
+        spacing = self._dist_params['spacing']
+
+        with torch.no_grad():
+            with threadpool_limits(limits=1, user_api=None):
+                for j, i in enumerate(selected_keys):
+                    force_fg = self.get_do_oversample(j)
+                    data, seg, seg_prev, properties = self._data.load_case(i)
+                    shape = data.shape[1:]
+                    bbox_lbs, bbox_ubs = self.get_bbox(shape, force_fg, properties['class_locations'])
+                    bbox = [[lb, ub] for lb, ub in zip(bbox_lbs, bbox_ubs)]
+
+                    data_cropped = torch.from_numpy(crop_and_pad_nd(data, bbox, 0)).float()
+                    seg_cropped = torch.from_numpy(
+                        crop_and_pad_nd(seg, bbox, -1, cast_cropped_to=np.int16)).to(torch.int16)
+                    if seg_prev is not None:
+                        seg_prev_cropped = torch.from_numpy(
+                            crop_and_pad_nd(seg_prev, bbox, -1, cast_cropped_to=np.int16)).to(torch.int16)
+                        seg_cropped = torch.cat((seg_cropped, seg_prev_cropped[None]), dim=0)
+
+                    if self.patch_size_was_2d:
+                        data_cropped = data_cropped[:, 0]
+                        seg_cropped = seg_cropped[:, 0]
+
+                    if self.transforms is not None:
+                        transformed = self.transforms(**{'image': data_cropped, 'segmentation': seg_cropped})
+                        data_sample = transformed['image']
+                        seg_sample = transformed['segmentation']
+                    else:
+                        data_sample = data_cropped
+                        seg_sample = seg_cropped
+
+                    # ── distance field ──
+                    dist_path = os.path.join(
+                        self._data.source_folder, f'{i}_dist.npy')
+                    if os.path.isfile(dist_path):
+                        dist_full = np.load(dist_path)          # (K, H, W, D)
+                        dist_cropped = torch.from_numpy(
+                            crop_and_pad_nd(dist_full, bbox, 0).copy())
+                    else:
+                        # precomputed file missing: fall back to online EDT on seg
+                        seg_for_edt = (seg_sample[0] if isinstance(seg_sample, list)
+                                       else seg_sample)
+                        dist_cropped = compute_batch_distance_field(
+                            seg_for_edt.unsqueeze(0),
+                            num_classes=num_classes, spacing=spacing,
+                        )[0]  # (K, H, W, D)
+
+                    if data_all is None:
+                        data_all = torch.empty(
+                            (self.batch_size, *data_sample.shape), dtype=torch.float32)
+                    data_all[j] = data_sample
+
+                    if isinstance(seg_sample, list):
+                        if seg_all is None:
+                            seg_all = [torch.empty((self.batch_size, *s.shape), dtype=s.dtype)
+                                       for s in seg_sample]
+                        for s_idx, s in enumerate(seg_sample):
+                            seg_all[s_idx][j] = s
+                    else:
+                        if seg_all is None:
+                            seg_all = torch.empty(
+                                (self.batch_size, *seg_sample.shape), dtype=seg_sample.dtype)
+                        seg_all[j] = seg_sample
+
+                    if dist_all is None:
+                        dist_all = torch.empty(
+                            (self.batch_size, *dist_cropped.shape), dtype=torch.float32)
+                    dist_all[j] = dist_cropped
+
+        return {'data': data_all, 'target': seg_all, 'dist_field': dist_all,
+                'keys': selected_keys}
 
 
 # ──────────────────────── Network Wrapper ────────────────────────
@@ -172,16 +243,7 @@ class nnUNetTrainer_BATseg(nnUNetTrainer):
         else:
             target = target.to(self.device, non_blocking=True)
 
-        # EDT precomputed in worker process; fall back to sync only for the
-        # first few cached batches that were produced before patching.
-        gt_dist = batch.get('dist_field')
-        if gt_dist is None:
-            target_full = target[0] if isinstance(target, list) else target
-            gt_dist = compute_batch_distance_field(
-                target_full.detach().cpu(),
-                num_classes=self.label_manager.num_segmentation_heads,
-                spacing=self._spacing,
-            )
+        gt_dist = batch['dist_field']  # precomputed offline and loaded in worker
 
         self.optimizer.zero_grad(set_to_none=True)
         with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
