@@ -9,7 +9,7 @@ python "$SCRIPT_DIR/create_dataset.py" \
     --workspace "$WORKSPACE" \
     --dataset003_id 3 \
     --dataset004_id 4 \
-    --margin_mm 20 \
+    --margin_mm 30 \
     --folds 0 1 2 3 4 \
     --trainer nnUNetTrainer \
     --plans nnUNetPlans \
