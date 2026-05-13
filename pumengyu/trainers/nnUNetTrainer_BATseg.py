@@ -25,8 +25,6 @@ import torch
 import torch.nn as nn
 from torch import autocast
 
-import os
-
 import nnunetv2.training.nnUNetTrainer.nnUNetTrainer as _trainer_module
 from nnunetv2.training.dataloading.data_loader import nnUNetDataLoader, crop_and_pad_nd
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
@@ -36,15 +34,18 @@ from nnunetv2.utilities.helpers import dummy_context
 from pumengyu.tools.dist_field import compute_batch_distance_field
 
 
-# ──────────────────────── DataLoader with precomputed EDT ────────────────────────
+# ──────────────────────── DataLoader with online EDT ────────────────────────
 
 class BATsegDataLoader(nnUNetDataLoader):
     """
-    Loads precomputed distance fields (<case_id>_dist.npy) from disk and
-    crops them with the same bbox as the image/seg.  No online EDT needed.
+    Extends nnUNetDataLoader to compute a surface distance field for each
+    training sample.  The dist field is computed online from the augmented
+    seg (after SpatialTransform), so it always matches the final 128³ patch.
 
-    Falls back to online EDT if the precomputed file is missing.
-    Run pumengyu/scripts/precompute_dist_fields.py once before training.
+    Note: self.patch_size is the oversample size used by SpatialTransform
+    (e.g. ~205³); the actual network patch size is what transforms crop to.
+    Computing dist from the pre-transform crop would give the wrong spatial
+    extent, so we always derive it from seg_sample after augmentation.
     """
     # Set by get_dataloaders before worker processes fork.
     _dist_params: dict = {'num_classes': None, 'spacing': None}
@@ -91,20 +92,15 @@ class BATsegDataLoader(nnUNetDataLoader):
                         seg_sample = seg_cropped
 
                     # ── distance field ──
-                    dist_path = os.path.join(
-                        self._data.source_folder, f'{i}_dist.npy')
-                    if os.path.isfile(dist_path):
-                        dist_full = np.load(dist_path)          # (K, H, W, D)
-                        dist_cropped = torch.from_numpy(
-                            crop_and_pad_nd(dist_full, bbox, 0).copy())
-                    else:
-                        # precomputed file missing: fall back to online EDT on seg
-                        seg_for_edt = (seg_sample[0] if isinstance(seg_sample, list)
-                                       else seg_sample)
-                        dist_cropped = compute_batch_distance_field(
-                            seg_for_edt.unsqueeze(0),
-                            num_classes=num_classes, spacing=spacing,
-                        )[0]  # (K, H, W, D)
+                    # Must be computed from the *augmented* seg_sample (after SpatialTransform),
+                    # because self.patch_size is the oversample size for augmentation (e.g. 205³)
+                    # while seg_sample is already at the final target patch size (128³).
+                    seg_for_edt = (seg_sample[0] if isinstance(seg_sample, list)
+                                   else seg_sample)
+                    dist_cropped = compute_batch_distance_field(
+                        seg_for_edt.unsqueeze(0),
+                        num_classes=num_classes, spacing=spacing,
+                    )[0]  # (K, H, W, D)
 
                     if data_all is None:
                         data_all = torch.empty(
@@ -245,23 +241,23 @@ class nnUNetTrainer_BATseg(nnUNetTrainer):
 
         gt_dist = batch['dist_field']  # precomputed offline and loaded in worker
 
-        self.optimizer.zero_grad(set_to_none=True)
+        self.optimizer.zero_grad(set_to_none=True)#type:ignore
         with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
-            seg_out, dist_out = self.network(data)
-            l_seg = self.loss(seg_out, target)
+            seg_out, dist_out = self.network(data)#type:ignore
+            l_seg = self.loss(seg_out, target)#type:ignore
             l_ba  = boundary_aware_loss(dist_out, gt_dist)
             l = l_seg + l_ba
 
         if self.grad_scaler is not None:
             self.grad_scaler.scale(l).backward()
-            self.grad_scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
-            self.grad_scaler.step(self.optimizer)
+            self.grad_scaler.unscale_(self.optimizer)  #type:ignore
+            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)#type:ignore
+            self.grad_scaler.step(self.optimizer)#type:ignore
             self.grad_scaler.update()
         else:
             l.backward()
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
-            self.optimizer.step()
+            torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)#type:ignore
+            self.optimizer.step()#type:ignore
 
         return {'loss': l.detach().cpu().numpy()}
 

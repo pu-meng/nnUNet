@@ -118,3 +118,7 @@ ENV/
 
 CLAUDE.md
 AGENTS.md
+
+# 本地追踪脚本和日志
+notes_pu/check_uncommitted.sh
+notes_pu/commit_reminders.log

@@ -15,6 +15,42 @@ import torch
 from scipy.ndimage import distance_transform_edt
 
 
+def save_dist_npz(dist: np.ndarray, seg: np.ndarray, path: str, pad: int = 20) -> None:
+    """Crop dist field to seg bounding box and save as uint8 npz."""
+    H, W, D = seg.shape
+    nz = np.where(seg > 0)
+    if len(nz[0]) == 0:
+        np.savez_compressed(path,
+                            data=np.zeros((dist.shape[0], 1, 1, 1), dtype=np.uint8),
+                            bbox=np.array([0, H, 0, W, 0, D]),
+                            shape=np.array([H, W, D]))
+        return
+    h_min = max(0, int(nz[0].min()) - pad)
+    h_max = min(H, int(nz[0].max()) + pad + 1)
+    w_min = max(0, int(nz[1].min()) - pad)
+    w_max = min(W, int(nz[1].max()) + pad + 1)
+    d_min = max(0, int(nz[2].min()) - pad)
+    d_max = min(D, int(nz[2].max()) + pad + 1)
+    cropped = dist[:, h_min:h_max, w_min:w_max, d_min:d_max]
+    uint8_data = (cropped * 255).clip(0, 255).astype(np.uint8)
+    np.savez_compressed(path,
+                        data=uint8_data,
+                        bbox=np.array([h_min, h_max, w_min, w_max, d_min, d_max]),
+                        shape=np.array([H, W, D]))
+
+
+def load_dist_npz(path: str) -> np.ndarray:
+    """Load dist npz and reconstruct full-size float32 array."""
+    d = np.load(path)
+    uint8_data = d['data']
+    h_min, h_max, w_min, w_max, d_min, d_max = d['bbox']
+    H, W, D = d['shape']
+    K = uint8_data.shape[0]
+    dist_full = np.zeros((K, H, W, D), dtype=np.float32)
+    dist_full[:, h_min:h_max, w_min:w_max, d_min:d_max] = uint8_data.astype(np.float32) / 255.0
+    return dist_full
+
+
 def compute_surface_distance_field(
     seg: np.ndarray,
     num_classes: int,

@@ -1,3 +1,8 @@
+
+# 目录
+
+[toc]
+
 # Task03_Liver 数据准备流程
 
 ## 环境变量（已写入 ~/.bashrc）
@@ -52,9 +57,47 @@ for fold in 1 2 ;do
     CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres $fold
 done
 
+
+
+for fold in 0 3  ;do
+    CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 3 3d_fullres $fold
+done
+
+for fold in 4  ;do
+    CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres $fold
+done
+
 ```
 
-## 5. 推理
+## 5. BATseg 训练（boundary-aware loss）
+
+### 5.1 离线预计算距离场（只需跑一次，~10-20 分钟）
+```bash
+systemd-run --user --scope python pumengyu/scripts/precompute_dist_fields.py \
+    --dataset 3 \
+    --config 3d_fullres \
+    --num_workers 1
+```
+输出：`$nnUNet_preprocessed/Dataset003_Liver/nnUNetPlans_3d_fullres/<case_id>_dist.npy`
+
+### 5.2 训练
+```bash
+CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 4 3d_fullres 4 -tr BATseg_twostage
+# fold 0，GPU 0
+CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_BATseg
+
+# fold 4，GPU 1
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_BATseg
+
+```
+
+### 5.3 调试（输出完整 log）
+```bash
+bash pumengyu/scripts/debug_batseg.sh <GPU_ID> <FOLD>
+# 例：bash pumengyu/scripts/debug_batseg.sh 1 4
+```
+
+## 6. 推理
 ```bash
 nnUNetv2_predict \
   -i /path/to/imagesTs \

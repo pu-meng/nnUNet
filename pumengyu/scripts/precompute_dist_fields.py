@@ -23,7 +23,7 @@ from nnunetv2.paths import nnUNet_preprocessed
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 
-from pumengyu.tools.dist_field import compute_surface_distance_field
+from pumengyu.tools.dist_field import compute_surface_distance_field, save_dist_npz
 
 
 def _load_seg(data_dir: str, case_id: str) -> np.ndarray:
@@ -53,7 +53,7 @@ def _process_case(args):
     data_dir, case_id, out_path, num_classes, spacing = args
     seg = _load_seg(data_dir, case_id)
     dist = compute_surface_distance_field(seg, num_classes=num_classes, spacing=spacing)
-    np.save(out_path, dist)
+    save_dist_npz(dist, seg, out_path)
     return case_id
 
 
@@ -78,13 +78,15 @@ def main():
     num_classes = len(dataset_json['labels'])
 
     data_dir = preprocessed_dir / f'nnUNetPlans_{args.config}'
+    dist_dir = preprocessed_dir / f'nnUNetPlans_{args.config}_dist'
+    dist_dir.mkdir(exist_ok=True)
 
     # 用 .pkl 文件枚举所有 case（每种格式都有 .pkl）
     case_ids = sorted(p.stem for p in data_dir.glob('*.pkl'))
 
     tasks = []
     for case_id in case_ids:
-        out_path = data_dir / f'{case_id}_dist.npy'
+        out_path = dist_dir / f'{case_id}_dist.npz'
         if not args.overwrite and out_path.exists():
             continue
         tasks.append((str(data_dir), case_id, str(out_path), num_classes, spacing))
@@ -92,6 +94,7 @@ def main():
     print(f'Dataset : {dataset_name}')
     print(f'Config  : {args.config}  spacing={spacing}')
     print(f'Classes : {num_classes}')
+    print(f'Dist dir: {dist_dir}')
     print(f'Cases   : {len(case_ids)} total, {len(tasks)} to compute')
 
     if not tasks:
