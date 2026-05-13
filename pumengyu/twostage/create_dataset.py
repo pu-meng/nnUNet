@@ -148,8 +148,10 @@ def crop_and_remap(
     label = sitk.ReadImage(str(labels_tr / f"{case_id}.nii.gz"))
     pred  = sitk.ReadImage(str(pred_dir  / f"{case_id}.nii.gz"))
 
-    # Liver is class 1 in Dataset003 predictions
-    liver_mask = sitk.BinaryThreshold(pred, lowerThreshold=1, upperThreshold=1,
+    # ROI covers liver (class 1) AND tumor (class 2): tumors can sit at the
+    # liver periphery and be correctly predicted as class 2 — excluding them
+    # from the bbox would crop out those tumor voxels.
+    liver_mask = sitk.BinaryThreshold(pred, lowerThreshold=1, upperThreshold=2,
                                       insideValue=1, outsideValue=0)
 
     start_xyz, size_xyz = liver_bbox_sitk(liver_mask, margin_mm)
