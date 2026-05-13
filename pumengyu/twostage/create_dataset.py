@@ -122,7 +122,9 @@ def main():
     raw4 = ws / "raw" / f"Dataset{args.dataset004_id:03d}_LiverTumor"
 
     images_tr  = raw3 / "imagesTr"
-    labels_tr  = raw3 / "labelsTr"
+    # gt_segmentations has original-space labels in nnUNet naming (liver_X.nii.gz).
+    # Use it directly so we don't need to re-extract labelsTr from the tar.
+    labels_tr  = ws / "preprocessed" / f"Dataset{args.dataset003_id:03d}_Liver" / "gt_segmentations"
     out_images = raw4 / "imagesTr"
     out_labels = raw4 / "labelsTr"
 
