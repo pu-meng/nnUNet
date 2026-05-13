@@ -8,6 +8,8 @@ For each class k:
   - Empty mask:                                                     → all zeros
 
 EDT uses physical spacing so anisotropic voxels are handled correctly.
+
+距离场计算
 """
 
 import numpy as np

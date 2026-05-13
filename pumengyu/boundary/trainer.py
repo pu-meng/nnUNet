@@ -1,4 +1,5 @@
 """
+nnUNetTrainer_BoundaryLoss,这个损失计算
 nnUNetTrainer_BoundaryLoss
 Adds boundary-aware surface distance loss (BATseg, arXiv:2412.06507) to
 the standard nnUNet training loop.  Drop-in replacement for nnUNetTrainer.

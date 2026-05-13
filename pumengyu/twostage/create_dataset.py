@@ -1,4 +1,5 @@
 """
+用stage-1 cv预测裁剪ROI,创建Dataset004
 Create Dataset004_LiverTumor from Dataset003_Liver via Stage-1 CV predictions.
 
 Pipeline (no data leakage)
