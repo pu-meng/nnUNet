@@ -1,6 +1,6 @@
 """
 用 GT 肝脏+肿瘤 mask 裁剪 ROI，创建 Dataset004_LiverTumor。
-Create Dataset004_LiverTumor from Dataset003_Liver using GT masks.
+
 
 Training data preparation:
   For each case, use the GT liver (class 1) + tumor (class 2) mask to
@@ -35,6 +35,11 @@ def liver_bbox_sitk(
     margin_mm: float,
 ) -> tuple[list[int], list[int]]:
     """
+    SimpleITK是ITK(Insight Toolkit)的简化封装,ITK是医学图像领域最主流的C++库,SimpleITK提供了Python接口,使得Python用户也能方便地使用ITK的功能。
+    
+    
+
+    
     Return (start_xyz, size_xyz) covering the organ mask + margin.
     SimpleITK convention: (x, y, z).
     """
@@ -78,21 +83,28 @@ def crop_case(
     organ_mask = sitk.BinaryThreshold(
         label, lowerThreshold=1, upperThreshold=2,
         insideValue=1, outsideValue=0)
+    #逐像素对比,二值化阈值操作,逐voxel判断,像素值\in[lowerThreshold, upperThreshold]的像素值设为insideValue,其他设为outsideValue
+
 
     start_xyz, size_xyz = liver_bbox_sitk(organ_mask, margin_mm)
-
+#start_xyz是列表,[x0,y0,z0]是organ_mask的边界框起点坐标, size_xyz是列表,[sx,sy,sz]是边界框的大小(单位:像素)
     roi = sitk.RegionOfInterestImageFilter()
-    roi.SetIndex(start_xyz)
-    roi.SetSize(size_xyz)
+    #.RegionOfInterestImageFilter()是SimpleITK内置得裁剪工具,从一个大图切出一个矩形子区域,保留原图得
+    #spacing, origin, direction等元信息不变,只改变size和index(起点坐标)
+    roi.SetIndex(start_xyz)#设置裁剪起点
+    roi.SetSize(size_xyz)#设置裁剪区域得尺寸,也就是各轴得voxel数
 
     img_crop   = roi.Execute(img)
     label_crop = roi.Execute(label)
 
     # Remap: liver=1 → 0,  tumor=2 → 1
     label_arr = sitk.GetArrayFromImage(label_crop).astype(np.uint8)
+    #这个label_crop转化为numpy.array,并且数据类型转为uint8
     tumor_arr = (label_arr == 2).astype(np.uint8)
     tumor_img = sitk.GetImageFromArray(tumor_arr)
     tumor_img.CopyInformation(label_crop)
+    #.CopyInformation()是把label_crop得几何信息原封不动得复制过去
+
 
     out_images.mkdir(parents=True, exist_ok=True)
     out_labels.mkdir(parents=True, exist_ok=True)
@@ -118,21 +130,24 @@ def main():
     args = parser.parse_args()
 
     ws   = Path(args.workspace)
+    #先Path之后/"raw"在任何平台都不会出错,字符串拼接很容易出错
     raw3 = ws / "raw" / f"Dataset{args.dataset003_id:03d}_Liver"
     raw4 = ws / "raw" / f"Dataset{args.dataset004_id:03d}_LiverTumor"
-
+#f-string本质是普通字符串,任何需要字符串得地方都可以用
+#
     images_tr  = raw3 / "imagesTr"
     # gt_segmentations has original-space labels in nnUNet naming (liver_X.nii.gz).
     # Use it directly so we don't need to re-extract labelsTr from the tar.
     labels_tr  = ws / "preprocessed" / f"Dataset{args.dataset003_id:03d}_Liver" / "gt_segmentations"
     out_images = raw4 / "imagesTr"
     out_labels = raw4 / "labelsTr"
-
+#类似得.name,.stem,.parent等不区分最后得是文件名还说文件夹,这些都只是字符串操作
     cases = sorted(p.name.replace("_0000.nii.gz", "")
                    for p in images_tr.glob("*_0000.nii.gz"))
     print(f"Found {len(cases)} cases, margin = {args.margin_mm} mm\n")
 
     crop_meta: dict[str, dict] = {}
+    #这个类型注解只是给人得提示不是必须这样做
     for case_id in cases:
         meta = crop_case(case_id, images_tr, labels_tr,
                          out_images, out_labels, args.margin_mm)

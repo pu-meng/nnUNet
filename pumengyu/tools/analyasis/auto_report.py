@@ -1,13 +1,17 @@
 """
 训练结束后自动生成报告的统一出口。
 
+数据集模式自动检测（无需手动指定）：
+  liver_tumor  — label 1=肝脏, label 2=肿瘤（Dataset003）
+  tumor_only   — label 1=肿瘤（Dataset004，已裁剪肝脏 ROI）
+
 Trainer 中调用方式：
     from pumengyu.tools.analyasis.auto_report import run_auto_report
     run_auto_report(fold_dir, gt_dir, img_dir)
 
 生成文件：
   fold_dir/report_custom.json   — 每 case 的 dice_liver / dice_cancer
-  fold_dir/report_custom.txt    — 汇总统计 + per-case 分级
+  fold_dir/report_custom.txt    — 汇总统计（有/无肿瘤分开）+ per-case 分级
   fold_dir/vis_png_custom/      — 每 case 可视化 PNG（GT / Pred / Diff）
 """
 
