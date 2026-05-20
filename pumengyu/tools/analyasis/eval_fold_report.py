@@ -195,7 +195,8 @@ SEP = "-" * 100
 def run_eval_report(val_dir, gt_dir, img_dir,
                     vis_slices: int = 5,
                     no_vis: bool = False,
-                    min_tumor_size: int = 0):
+                    min_tumor_size: int = 0,
+                    out_dir=None):
     """
     生成 report_custom.txt 和（可选）vis_png_custom/。
 
@@ -206,11 +207,13 @@ def run_eval_report(val_dir, gt_dir, img_dir,
       vis_slices     每个 case 可视化切片数
       no_vis         True 时跳过可视化
       min_tumor_size 后处理：去掉体素数 < 该值的 cancer 连通域（0=关闭）
+      out_dir        输出目录，None 时默认写到 val_dir.parent（向后兼容）
     """
     val_dir = Path(val_dir)
     gt_dir  = Path(gt_dir)
     img_dir = Path(img_dir)
-    out_dir = val_dir.parent
+    out_dir = Path(out_dir) if out_dir is not None else val_dir.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     summary_path = val_dir / "summary.json"
     if not summary_path.exists():
@@ -337,6 +340,28 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                 lines.append(f"    {r['case']:<20}  pred_tumor={fmt_n(r['pred_tumor'])}{flag}")
     else:
         lines.append("  （无此类 case）")
+    lines.append("")
+
+    # ── 按肿瘤大小分组统计 ───────────────────────────────────────────────
+    SIZE_BINS = [
+        ("极小(<5k)",       lambda g: g < 5_000),
+        ("小(5k-50k)",      lambda g: 5_000 <= g < 50_000),
+        ("中等(50k-300k)",  lambda g: 50_000 <= g < 300_000),
+        ("大(>=300k)",      lambda g: g >= 300_000),
+    ]
+    lines.append("Tumor Dice 按大小分组 (有肿瘤 case)")
+    lines.append(f"  {'大小分类':<16} {'n':>4}  {'Dice mean':>10}  {'Dice std':>9}  {'Recall':>8}  {'Precision':>10}")
+    lines.append("  " + "-" * 68)
+    for label, cond in SIZE_BINS:
+        subset = [r for r in has_tumor if cond(r["gt_tumor"])]
+        if subset:
+            d_m = np.mean([r["dice"]      for r in subset])
+            d_s = np.std( [r["dice"]      for r in subset])
+            r_m = np.mean([r["recall"]    for r in subset])
+            p_m = np.mean([r["precision"] for r in subset])
+            lines.append(f"  {label:<16} {len(subset):>4}  {d_m:>10.4f}  {d_s:>9.4f}  {r_m:>8.4f}  {p_m:>10.4f}")
+        else:
+            lines.append(f"  {label:<16} {0:>4}  {'—':>10}")
     lines.append("")
 
     # ── Per-Case 分级 ────────────────────────────────────────────────────

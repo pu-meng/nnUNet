@@ -204,7 +204,10 @@ def _boundary_loss(pred: torch.Tensor, gt: torch.Tensor) -> torch.Tensor:
 # Trainer
 # ─────────────────────────────────────────────────────────────────────────────
 
-class nnUNetTrainer_BoundaryLoss(nnUNetTrainer):
+from pumengyu.mixins import SmallTumorOversampleMixin, AutoReportMixin
+
+
+class nnUNetTrainer_BoundaryLoss(SmallTumorOversampleMixin, AutoReportMixin, nnUNetTrainer):
 
     def initialize(self):
         super().initialize()
@@ -284,23 +287,3 @@ class nnUNetTrainer_BoundaryLoss(nnUNetTrainer):
         #这个是验证集上的单个batch推理,不更新参数,只计算指标
         return super().validation_step(batch)
 
-    def perform_actual_validation(self, save_probabilities: bool = False):
-        super().perform_actual_validation(save_probabilities)
-        self._run_report()
-
-    def _run_report(self):
-        try:
-            from pathlib import Path
-            from nnunetv2.paths import nnUNet_preprocessed, nnUNet_raw
-            from pumengyu.tools.analyasis.auto_report import run_auto_report
-
-            dataset_name = self.plans_manager.dataset_name
-            fold_dir = Path(self.output_folder)
-            gt_dir   = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
-            img_dir  = Path(nnUNet_raw)           / dataset_name / "imagesTr"
-
-            self.print_to_log_file(f"[report] 生成报告: {fold_dir.name}")
-            run_auto_report(fold_dir, gt_dir, img_dir)
-            self.print_to_log_file("[report] 报告生成完成")
-        except Exception as e:
-            self.print_to_log_file(f"[report] 失败: {e}")

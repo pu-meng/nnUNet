@@ -28,6 +28,7 @@ def run_auto_report(
     vis_slices: int = 5,
     no_vis: bool = False,
     min_tumor_size: int = 0,
+    out_dir=None,
 ):
     """
     参数：
@@ -37,12 +38,14 @@ def run_auto_report(
       vis_slices     每 case 可视化切片数（默认 5）
       no_vis         True 时跳过可视化，加速收尾
       min_tumor_size 后处理对比阈值，0 = 关闭
+      out_dir        输出目录，None 时写到 fold_dir 根（向后兼容）
     """
     fold_dir = Path(fold_dir)
-    print(f"\n[auto_report] ===== 开始生成报告: {fold_dir.name} =====")
+    out_dir  = Path(out_dir) if out_dir is not None else fold_dir
+    print(f"\n[auto_report] ===== 开始生成报告: {fold_dir.name} → {out_dir} =====")
 
     try:
-        generate_report_json(fold_dir)
+        generate_report_json(fold_dir, out_dir=out_dir)
     except Exception as e:
         print(f"[auto_report] gen_report_json 失败: {e}")
 
@@ -54,6 +57,7 @@ def run_auto_report(
             vis_slices=vis_slices,
             no_vis=no_vis,
             min_tumor_size=min_tumor_size,
+            out_dir=out_dir,
         )
     except Exception as e:
         print(f"[auto_report] eval_fold_report 失败: {e}")

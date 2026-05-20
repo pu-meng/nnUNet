@@ -26,12 +26,20 @@ def _detect_mode(summary: dict) -> str:
     return "tumor_only"
 
 
-def generate_report_json(fold_dir: Path) -> Path | None:
-    """从 fold_dir/validation/summary.json 生成 fold_dir/report_custom.json，返回输出路径。"""
+def generate_report_json(fold_dir: Path, out_dir: Path | None = None) -> Path | None:
+    """从 fold_dir/validation/summary.json 生成 report_custom.json，返回输出路径。
+
+    out_dir: 输出目录，None 时默认写到 fold_dir（向后兼容）。
+    """
     summary_path = fold_dir / "validation" / "summary.json"
     if not summary_path.exists():
         print(f"[gen_report_json] summary.json 找不到: {summary_path}")
         return None
+
+    if out_dir is None:
+        out_dir = fold_dir
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     summary = json.load(open(summary_path))
     mode = _detect_mode(summary)
@@ -72,7 +80,7 @@ def generate_report_json(fold_dir: Path) -> Path | None:
 
     records.sort(key=lambda x: x["case"])
 
-    out_path = fold_dir / "report_custom.json"
+    out_path = out_dir / "report_custom.json"
     out_path.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[gen_report_json] {out_path}  ({len(records)} cases)")
     return out_path

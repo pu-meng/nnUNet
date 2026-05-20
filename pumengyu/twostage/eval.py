@@ -17,6 +17,8 @@ import argparse
 import json
 import shutil
 import tempfile
+import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -106,7 +108,7 @@ def make_predictor(model_folder: str, fold: int,
         device=torch.device(device),
         verbose=False,
         verbose_preprocessing=False,
-        allow_tqdm=True,
+        allow_tqdm=False,
     )
     pred.initialize_from_trained_model_folder(
         model_folder,#训练结果目录
@@ -118,7 +120,32 @@ def make_predictor(model_folder: str, fold: int,
 
 def fmt_n(n) -> str:
     return f"{int(n):,}" if n is not None else "N/A"
-#:,这个是python格式化语法,每三位加一个逗号,比如1234567会被格式化成1,234,567
+
+
+def predict_with_progress(predictor, inputs: list, outputs: list, label: str = "推理") -> None:
+    """逐 case 推理，打印 case 级进度 + 已用时 + ETA，替代 nnUNet 内部的 tile 进度条。"""
+    import io, warnings, contextlib
+    n  = len(inputs)
+    t0 = time.time()
+    for i, (inp, out) in enumerate(zip(inputs, outputs)):
+        case_name = Path(inp[0]).name.replace("_0000.nii.gz", "")
+        elapsed   = time.time() - t0
+        if i > 0:
+            eta_sec = elapsed / i * (n - i)
+            eta_str = f"ETA {eta_sec/60:.1f}min"
+        else:
+            eta_str = "ETA ?"
+        print(f"  [{i+1:2d}/{n}] {case_name:<20}  已用 {elapsed/60:.1f}min  {eta_str}", flush=True)
+        with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
+            warnings.simplefilter("ignore")
+            predictor.predict_from_files(
+                [inp], [out],
+                save_probabilities=False, overwrite=True,
+                num_processes_preprocessing=2,
+                num_processes_segmentation_export=2,
+            )
+    total = time.time() - t0
+    print(f"  ✓ {label} {n} 个 case 完成，总耗时 {total/60:.1f}min")
 
 # ──────────────────────────────── main ───────────────────────────────────────
 
@@ -184,12 +211,7 @@ def main():
             s1_inputs  = [[str(ct_dir / f"{c}_0000.nii.gz")] for c in missing]
             s1_outputs = [str(s1_cache_dir / f"{c}.nii.gz")  for c in missing]
             s1_pred = make_predictor(stage1_folder, args.fold, args.checkpoint, args.device)
-            s1_pred.predict_from_files(
-                s1_inputs, s1_outputs,
-                save_probabilities=False, overwrite=True,
-                num_processes_preprocessing=2,
-                num_processes_segmentation_export=2,
-            )
+            predict_with_progress(s1_pred, s1_inputs, s1_outputs, label="Stage1")
             del s1_pred   # 释放显存再加载 Stage2
         else:
             print(f"  全部 {len(val_cases)} 个 case 命中缓存，跳过 Stage1 推理")
@@ -217,12 +239,7 @@ def main():
         s2_outputs = [str(stage2_out  / f"{c}.nii.gz")        for c in val_cases]
 
         s2_pred = make_predictor(stage2_folder, args.fold, args.checkpoint, args.device)
-        s2_pred.predict_from_files(
-            s2_inputs, s2_outputs,
-            save_probabilities=False, overwrite=True,
-            num_processes_preprocessing=2,
-            num_processes_segmentation_export=2,
-        )
+        predict_with_progress(s2_pred, s2_inputs, s2_outputs, label="Stage2")
         del s2_pred
 
         # ── 评估：Stage2 预测映射回原图空间 ──────────────────────────────────
@@ -306,10 +323,15 @@ def main():
                     f" {r['precision']:>10.4f} {r['fdr']:>8.4f}"
                     f" {fmt_n(r['pred_tumor']):>12} {fmt_n(r['gt_tumor']):>10}")
 
-        report_txt = Path(stage2_folder) / f"fold_{args.fold}" / "eval_e2e.txt"
+        margin_tag  = f"{int(args.margin_mm)}mm"
+        ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir     = Path(stage2_folder) / f"fold_{args.fold}" / f"{ts}_e2e_{margin_tag}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        report_txt  = run_dir / "eval_e2e.txt"
         report_txt.write_text("\n".join(lines), encoding="utf-8")
 
-        report_json = report_txt.with_suffix(".json")
+        report_json = run_dir / "eval_e2e.json"
         report_json.write_text(json.dumps({
             "fold": args.fold, "stage1_trainer": args.stage1_trainer,
             "stage2_trainer": args.stage2_trainer, "margin_mm": args.margin_mm,
@@ -324,7 +346,7 @@ def main():
         }, indent=2, ensure_ascii=False))
 
         print("\n".join(lines))
-        print(f"\n报告已保存：\n  {report_txt}\n  {report_json}")
+        print(f"\n报告已保存 → {run_dir}/\n  {report_txt.name}\n  {report_json.name}")
 
     finally:
         if not args.keep_tmp:
