@@ -28,3 +28,8 @@ CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 3 -tr nnUNetTrainer_UFL --npz
 for i in 1 2 3 0; do
   CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres $i -tr nnUNetTrainer_UFL
 done
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_UFL_v2
+
+CUDA_VISIBLE_DEVICES=1  nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste_v2

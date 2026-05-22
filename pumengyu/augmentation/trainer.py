@@ -45,3 +45,16 @@ class nnUNetTrainer_CopyPasteUFL(
 
     结果目录：nnUNetTrainer_CopyPasteUFL__nnUNetPlans__3d_fullres/
     """
+
+
+# ------------------------------------------------------------------ #
+# v2：修复 CopyPaste 多连通域 bug 后的对照实验版本                    #
+# Mixin 代码与上方一致，类名不同 → 结果存新目录，旧 fold_4 保留对比  #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_UFL_v2(UnifiedFocalLossMixin, AutoReportMixin, nnUNetTrainer):
+    """结果目录：nnUNetTrainer_UFL_v2__nnUNetPlans__3d_fullres/"""
+
+
+class nnUNetTrainer_CopyPaste_v2(CopyPasteMixin, SmallTumorOversampleMixin, AutoReportMixin, nnUNetTrainer):
+    """结果目录：nnUNetTrainer_CopyPaste_v2__nnUNetPlans__3d_fullres/"""

@@ -201,23 +201,26 @@ class CopyPasteMixin:
     # 库构建                                                               #
     # ------------------------------------------------------------------ #
     def on_train_start(self):
-        super().on_train_start()
+        super().on_train_start()#type:ignore
         self._cp_library: list = []
         self._build_cp_library()
 
     def _build_cp_library(self):
         import blosc2
+        from scipy.ndimage import label as cc_label
         from batchgenerators.utilities.file_and_folder_operations import join, load_pickle
 
         tumor_cls = self.label_manager.foreground_labels[-1]
         folder    = self.preprocessed_dataset_folder
         tr_keys, _ = self.do_split()
 
+        self._no_tumor_keys: set = set()
         n_loaded = 0
         for key in tr_keys:
             props  = load_pickle(join(folder, key + '.pkl'))
             n_locs = len(props.get('class_locations', {}).get(tumor_cls, []))
-            if n_locs == 0 or n_locs > self.CP_MAX_LOCS:
+            if n_locs == 0:
+                self._no_tumor_keys.add(key)
                 continue
 
             ct_arr  = blosc2.open(join(folder, key + '.b2nd'),     mode='r')[:]   # (C,Z,Y,X)
@@ -227,28 +230,36 @@ class CopyPasteMixin:
             if not tmask.any():
                 continue
 
-            coords = np.where(tmask)
-            z0, z1 = int(coords[0].min()), int(coords[0].max()) + 1
-            y0, y1 = int(coords[1].min()), int(coords[1].max()) + 1
-            x0, x1 = int(coords[2].min()), int(coords[2].max()) + 1
-            m       = self.CP_MARGIN
+            labeled, n_cc = cc_label(tmask)
             Z, Y, X = seg_arr.shape
-            z0m, z1m = max(0, z0-m), min(Z, z1+m)
-            y0m, y1m = max(0, y0-m), min(Y, y1+m)
-            x0m, x1m = max(0, x0-m), min(X, x1+m)
+            m = self.CP_MARGIN
 
-            ct_roi    = ct_arr[:, z0m:z1m, y0m:y1m, x0m:x1m].astype(np.float32)  # (C,dz,dy,dx)
-            tmask_roi = tmask[z0m:z1m, y0m:y1m, x0m:x1m]                          # (dz,dy,dx) bool
+            for cc_id in range(1, n_cc + 1):
+                cc_mask = (labeled == cc_id)
+                if cc_mask.sum() > self.CP_MAX_LOCS:
+                    continue  # 该连通域太大，不是小肿瘤
 
-            self._cp_library.append({
-                'ct':    torch.from_numpy(ct_roi),        # (C,dz,dy,dx)
-                'tmask': torch.from_numpy(tmask_roi),     # (dz,dy,dx)
-            })
-            n_loaded += 1
+                coords = np.where(cc_mask)
+                z0, z1 = int(coords[0].min()), int(coords[0].max()) + 1
+                y0, y1 = int(coords[1].min()), int(coords[1].max()) + 1
+                x0, x1 = int(coords[2].min()), int(coords[2].max()) + 1
+                z0m, z1m = max(0, z0-m), min(Z, z1+m)
+                y0m, y1m = max(0, y0-m), min(Y, y1+m)
+                x0m, x1m = max(0, x0-m), min(X, x1+m)
+
+                ct_roi    = ct_arr[:, z0m:z1m, y0m:y1m, x0m:x1m].astype(np.float32)  # (C,dz,dy,dx)
+                tmask_roi = cc_mask[z0m:z1m, y0m:y1m, x0m:x1m]                        # (dz,dy,dx) bool
+
+                self._cp_library.append({
+                    'ct':    torch.from_numpy(ct_roi),
+                    'tmask': torch.from_numpy(tmask_roi),
+                })
+                n_loaded += 1
 
         self.print_to_log_file(
             f"[CopyPaste] library built: {n_loaded} ROIs "
-            f"(CP_MAX_LOCS={self.CP_MAX_LOCS}, CP_MARGIN={self.CP_MARGIN})"
+            f"(CP_MAX_LOCS={self.CP_MAX_LOCS}, CP_MARGIN={self.CP_MARGIN}, "
+            f"no_tumor_keys={len(self._no_tumor_keys)} 跳过粘贴)"
         )
 
     # ------------------------------------------------------------------ #
@@ -266,8 +277,12 @@ class CopyPasteMixin:
 
         B, C, PZ, PY, PX = data.shape
         seg_full = target[0] if isinstance(target, list) else target  # (B,1,PZ,PY,PX)
+        batch_keys = batch.get('keys', [])
 
         for b in range(B):
+            # 无肿瘤 case 跳过粘贴，防止污染训练分布导致推理误报
+            if batch_keys and b < len(batch_keys) and batch_keys[b] in self._no_tumor_keys:
+                continue
             if np.random.random() > self.CP_PROB:
                 continue
 
@@ -325,12 +340,12 @@ class UnifiedFocalLossMixin:
 
     子类可覆盖：
         UFL_LAMBDA: float = 0.5   UFL 项相对默认 loss 的整体权重
-        UFL_DELTA:  float = 0.6   Tversky delta（>0.5 → 漏检惩罚 > 误报惩罚）
+        UFL_DELTA:  float = 0.5   Tversky delta（0.5=对称；>0.5 → 漏检惩罚 > 误报惩罚）
         UFL_GAMMA:  float = 0.2   focal 参数（越大越聚焦难样本）
     """
 
     UFL_LAMBDA: float = 0.5
-    UFL_DELTA:  float = 0.6
+    UFL_DELTA:  float = 0.5  # 0.6→0.5：对称惩罚，消除对 FN 的系统性偏置，降低无肿瘤 case 误报
     UFL_GAMMA:  float = 0.2
 
     def _build_loss(self):
@@ -429,7 +444,7 @@ class AutoReportMixin:
             img_dir  = Path(nnUNet_raw)           / dataset_name / "imagesTr"
 
             self.print_to_log_file(f"[AutoReport] 生成报告: {fold_dir.name}")
-            run_auto_report(fold_dir, gt_dir, img_dir)
+            run_auto_report(fold_dir, gt_dir, img_dir, min_tumor_size=100)
             self.print_to_log_file("[AutoReport] 报告生成完成")
         except Exception as e:
             self.print_to_log_file(f"[AutoReport] 失败: {e}")
