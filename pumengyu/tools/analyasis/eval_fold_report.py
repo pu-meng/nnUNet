@@ -342,6 +342,21 @@ def run_eval_report(val_dir, gt_dir, img_dir,
         lines.append("  （无此类 case）")
     lines.append("")
 
+    # ── 综合指标（含无肿瘤 case）────────────────────────────────────────────
+    # 无肿瘤且pred=0: TP=FP=FN=0 → Dice=0/0，约定为1（完美TN）
+    # 无肿瘤但pred>0: TP=0,FP>0,FN=0 → Dice=2*0/(0+FP+0)=0（数学精确）
+    no_tumor_dices = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
+    all_dices = [r["dice"] for r in has_tumor] + no_tumor_dices
+    n_tn = sum(1 for r in no_tumor if r["pred_tumor"] == 0)
+    n_fp = len(false_pos_cases)
+    lines.append(f"Tumor 综合指标（含无肿瘤 case，共 {len(all_dices)} cases）")
+    lines.append("  无肿瘤正确(pred=0)→Dice=1(约定)，无肿瘤误报(pred>0)→Dice=0(数学精确)")
+    lines.append(f"  Dice        : mean={np.mean(all_dices):.4f}  std={np.std(all_dices):.4f}")
+    lines.append(f"  构成        : 有肿瘤 n={len(has_tumor)} mean={np.mean([r['dice'] for r in has_tumor]):.4f}"
+                 f"  |  无肿瘤正确(Dice=1) n={n_tn}"
+                 f"  |  无肿瘤误报(Dice=0) n={n_fp}")
+    lines.append("")
+
     # ── 按肿瘤大小分组统计 ───────────────────────────────────────────────
     SIZE_BINS = [
         ("极小(<5k)",       lambda g: g < 5_000),

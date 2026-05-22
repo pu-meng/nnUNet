@@ -1,4 +1,8 @@
 """
+OOP=Object-Oriented Programming,面向对象编程
+核心概念三个:封装,把数据和方法打包到一个类里;
+继承,子类复用父类的代码
+多态,同一个方法名,不同类有不同的行为;
 通用 Trainer Mixin — 供各子 Trainer 按需继承，不依赖具体网络结构。
 
 使用方式：
@@ -29,7 +33,7 @@ AutoReportMixin
 
 from __future__ import annotations
 import importlib.util as _ilu
-import os as _os
+import os as _os#_os是os模块的别名
 from os.path import join
 from pathlib import Path
 
@@ -43,24 +47,36 @@ _UFL_FILE = _os.path.join(
     _os.path.dirname(_os.path.abspath(__file__)),
     '..', 'compound-loss-pytorch-main', 'unified_focal_loss_pytorch.py'
 )
-_AUFL_CLS = None
+_AUFL_CLS = None#写在文件的最外层,不在任何函数或类里面,这个是模块级别的变量
 
 
 def _load_aufl():
     """懒加载 AsymmetricUnifiedFocalLoss，结果全局缓存。"""
-    global _AUFL_CLS
+    global _AUFL_CLS #global声明全局变量,这样在函数内部就可以修改全局变量的值了
     if _AUFL_CLS is None:
+        #第一步.spec_from_file_location()找到文件,创建"说明书"",告诉python有一个模块,名字叫做'unified_focal_loss_pytorch'
+
         spec = _ilu.spec_from_file_location('unified_focal_loss_pytorch', _UFL_FILE)
-        mod  = _ilu.module_from_spec(spec)
+        #第二步:创建空模块对象,
+        mod  = _ilu.module_from_spec(spec)#type:ignore
+        #第三步:执行文件,填充内容
         spec.loader.exec_module(mod)      # type: ignore[union-attr]
         _AUFL_CLS = mod.AsymmetricUnifiedFocalLoss
     return _AUFL_CLS
 
 
 class _UFLWrapper(torch.nn.Module):
-    """将 AsymmetricUnifiedFocalLoss（二值肿瘤）叠加到 nnUNet 默认 loss 上。"""
+    """
+    将 AsymmetricUnifiedFocalLoss（二值肿瘤）叠加到 nnUNet 默认 loss 上。
+    这个类是包装器,将两个loss合并为一个,让nnUNet使用
+    """
 
     def __init__(self, base_loss, ufl_fn, tumor_cls_idx: int, ufl_lambda: float):
+        """
+        ufl_fn是AsymmetricUnifiedFocalLoss类的一个实例,负责计算UFL
+        tumor_cls_idx是肿瘤的类别索引,LiTS种,肝脏=1,肿瘤=2,所以tumor_cls_idx=2
+        ufl_lambda是UFL的权重,用于平衡UFL和CE+Dice的loss
+        """
         super().__init__()
         self.base_loss  = base_loss
         self.ufl_fn     = ufl_fn
@@ -68,6 +84,17 @@ class _UFLWrapper(torch.nn.Module):
         self.ufl_lambda = ufl_lambda
 
     def forward(self, net_output, target):
+        """
+        nnUNet默认开启深监督,
+        net_output是网络输出,是一个list,包含多个输出,
+        =[
+        全分辨率logits,#(B,C,Z,Y,X)
+        1/4分辨率logits,#(B,C,Z/4,Y/4,X/4)
+        ]
+        target是真实标签,是一个list,包含多个标签,对应各个分辨率的标签
+        nnunet计算loss,这个的unet的decoder不是很多层吗,每层的输出都会记录,给与权重,总的loss=加权求和,
+        低分辨率层权重小,全分辨率层权重大
+        """
         base = self.base_loss(net_output, target)
 
         # 只在全分辨率（deep-supervision 第0层）上计算 UFL
@@ -76,12 +103,14 @@ class _UFLWrapper(torch.nn.Module):
 
         # 转 float32，防止 autocast 下精度问题
         probs  = torch.softmax(logits.float(), dim=1)                           # (B,C,Z,Y,X)
-        tp     = probs[:, self.tumor_idx]                                       # (B,Z,Y,X)
-        y_pred = torch.stack([1.0 - tp, tp], dim=1)                            # (B,2,Z,Y,X)
-
+        p_tumor    = probs[:, self.tumor_idx]                                       # (B,Z,Y,X)
+        y_pred = torch.stack([1.0 - p_tumor, p_tumor], dim=1)                            # (B,2,Z,Y,X)
+#默认规则,注释写的是等号左边的变量的维度
+#tgt[:,0]维度是(B,Z,Y,X),值是0/1/2/.../C-1整数
+#.long()将值转为整数,.float()是把True/False转为1.0/0.0
         tm     = (tgt[:, 0].long() == self.tumor_idx).float()                  # (B,Z,Y,X)
         y_true = torch.stack([1.0 - tm, tm], dim=1)                            # (B,2,Z,Y,X)
-
+#list []里面装两个元素是完全合法
         ufl = self.ufl_fn(y_pred, y_true)
         return base + self.ufl_lambda * ufl
 
@@ -100,33 +129,44 @@ class SmallTumorOversampleMixin:
     子类可覆盖类变量调整力度：
         SMALL_TUMOR_THRESH_LOCS = 4000
         SMALL_TUMOR_REPEAT      = 2
+    nnUNet的每轮是固定迭代次数(默认250个batch)
+    每个batch:
+    1.从identifiers中随机抽取一个case
+    2.从该case中随机抽取一个patch
+    3.将两个patch拼接成一个batch,[2,C,Z,Y,X ]送进网络,nnunet默认batch=2
+    一个batch=一次独立的forward+backward+update
+    identifiers是所有case的名字列表
     """
 
-    SMALL_TUMOR_THRESH_LOCS: int = 6000
-    SMALL_TUMOR_REPEAT:      int = 3
+    SMALL_TUMOR_THRESH_LOCS: int = 6000 #小于这个值的case会被认定为小肿瘤case
+    SMALL_TUMOR_REPEAT:      int = 3#小肿瘤case在identifiers中重复的次数
 
     def get_tr_and_val_datasets(self):
-        dataset_tr, dataset_val = super().get_tr_and_val_datasets()
-        self._expand_small_tumor_indices(dataset_tr)
+        dataset_tr, dataset_val = super().get_tr_and_val_datasets()#type:ignore
+        #dataset_tr是dataset对象,有identifiers属性,是所有case的名字列表
+        self._expand_small_tumor_indices(dataset_tr)#把小肿瘤case的名字重复加入进去
         return dataset_tr, dataset_val
 
     def _expand_small_tumor_indices(self, dataset_tr):
-        tumor_cls = self.label_manager.foreground_labels[-1]
-        folder    = self.preprocessed_dataset_folder
+        tumor_cls = self.label_manager.foreground_labels[-1]#type:ignore
+        folder    = self.preprocessed_dataset_folder#type:ignore
         extra, n_small = [], 0
 
         for key in list(dataset_tr.identifiers):
             props  = load_pickle(join(folder, key + '.pkl'))
+            #拼成完整的路径 /nnUNet_workspace/preprocessed/Dataset003/liver_0001.pkl
+            #props有"class_locations",里面有肝脏体素的位置列表,肿瘤体素的位置列表
             n_locs = len(props.get('class_locations', {}).get(tumor_cls, []))
+            #n_locs是肿瘤体素的位置的记录数,表示到底有多少个肿瘤
             if 0 < n_locs < self.SMALL_TUMOR_THRESH_LOCS:
                 extra.extend([key] * (self.SMALL_TUMOR_REPEAT - 1))
                 n_small += 1
 
         n_before = len(dataset_tr.identifiers)
         dataset_tr.identifiers.extend(extra)
-        self.print_to_log_file(
-            f"[SmallTumorOversample] thresh={self.SMALL_TUMOR_THRESH_LOCS} locs, "
-            f"repeat={self.SMALL_TUMOR_REPEAT}x, "
+        self.print_to_log_file(  #type:ignore
+            f"[小肿瘤重复] 阈值={self.SMALL_TUMOR_THRESH_LOCS} locs, "
+            f"重复次数={self.SMALL_TUMOR_REPEAT}x, "
             f"small={n_small}/{n_before}, "
             f"identifiers {n_before} → {len(dataset_tr.identifiers)}"
         )
