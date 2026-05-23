@@ -36,9 +36,16 @@ import importlib.util as _ilu
 import os as _os#_os是os模块的别名
 from os.path import join
 from pathlib import Path
+from nnunetv2.paths import nnUNet_preprocessed, nnUNet_raw
+from pumengyu.tools.analyasis.auto_report import run_auto_report
 
+import gc
+import ctypes
 import numpy as np
 import torch
+import blosc2
+from scipy.ndimage import label as cc_label
+from batchgenerators.utilities.file_and_folder_operations import join, load_pickle
 
 # ------------------------------------------------------------------ #
 # UnifiedFocalLoss 辅助：懒加载官方库，避免启动时强依赖               #
@@ -193,9 +200,23 @@ class CopyPasteMixin:
         CP_MARGIN   = 3      提取 ROI 时肿瘤 bbox 四周扩展的 voxel 数
     """
 
-    CP_PROB:     float = 0.5
-    CP_MAX_LOCS: int   = 5000
-    CP_MARGIN:   int   = 3
+    CP_PROB:        float = 0.5
+    CP_MAX_LOCS:    int   = 5000
+    CP_MARGIN:      int   = 3
+    CP_NUM_DA_PROC: int   = 4   # 限制 DA worker 数，4 workers×3.5GB=14GB vs 默认12×3.5GB=42GB
+
+    def get_dataloaders(self):
+        import os
+        prev = os.environ.get('nnUNet_n_proc_DA')
+        os.environ['nnUNet_n_proc_DA'] = str(self.CP_NUM_DA_PROC)
+        try:
+            result = super().get_dataloaders()  #type:ignore
+        finally:
+            if prev is None:
+                del os.environ['nnUNet_n_proc_DA']
+            else:
+                os.environ['nnUNet_n_proc_DA'] = prev
+        return result
 
     # ------------------------------------------------------------------ #
     # 库构建                                                               #
@@ -206,39 +227,50 @@ class CopyPasteMixin:
         self._build_cp_library()
 
     def _build_cp_library(self):
-        import blosc2
-        from scipy.ndimage import label as cc_label
-        from batchgenerators.utilities.file_and_folder_operations import join, load_pickle
+    
+        tumor_cls = self.label_manager.foreground_labels[-1]#type:ignore
+        folder    = self.preprocessed_dataset_folder#type:ignore
+        tr_keys, _ = self.do_split()#type:ignore
 
-        tumor_cls = self.label_manager.foreground_labels[-1]
-        folder    = self.preprocessed_dataset_folder
-        tr_keys, _ = self.do_split()
-
-        self._no_tumor_keys: set = set()
+        self._no_tumor_keys: set = set()#存储的是无肿瘤的case名字
         n_loaded = 0
-        for key in tr_keys:
+        from tqdm import tqdm
+        pbar = tqdm(tr_keys, desc='[CopyPaste] 建库', unit='case')
+        for key in pbar:
+            pbar.set_postfix(ROIs=n_loaded)
             props  = load_pickle(join(folder, key + '.pkl'))
             n_locs = len(props.get('class_locations', {}).get(tumor_cls, []))
             if n_locs == 0:
                 self._no_tumor_keys.add(key)
                 continue
+#blosc2是高性能的压缩裤,专门为科学计算设计
+#.npy是numpy原生,无压缩;.nii.gz是医学图像标准压缩慢;
+#.b2nd是blosc2压缩,压缩比高,解压速度快,读写极快,支持切片懒加载
+#import blosc2
+#.nii.gz必须把整个文件解压到内存,才能访问任意的位置
+#blosc2内部把数据分成很多小块,存储,访问某个区域时只解压几块
 
-            ct_arr  = blosc2.open(join(folder, key + '.b2nd'),     mode='r')[:]   # (C,Z,Y,X)
-            seg_arr = blosc2.open(join(folder, key + '_seg.b2nd'), mode='r')[0]   # (Z,Y,X)
-
+            # 先读 seg 判断是否有小肿瘤连通域，有才读 CT，避免为大肿瘤 case 加载整个 CT
+            seg_arr = blosc2.open(join(folder, key + '_seg.b2nd'), mode='r')[0]   #type:ignore
             tmask = (seg_arr == tumor_cls)
             if not tmask.any():
                 continue
-
-            labeled, n_cc = cc_label(tmask)
-            Z, Y, X = seg_arr.shape
+            labeled, n_cc = cc_label(tmask)  #type:ignore
+            Z, Y, X = seg_arr.shape  #type:ignore
             m = self.CP_MARGIN
 
-            for cc_id in range(1, n_cc + 1):
-                cc_mask = (labeled == cc_id)
-                if cc_mask.sum() > self.CP_MAX_LOCS:
-                    continue  # 该连通域太大，不是小肿瘤
+            small_ccs = [i for i in range(1, n_cc + 1)
+                         if (labeled == i).sum() <= self.CP_MAX_LOCS]
+            if not small_ccs:
+                del seg_arr, tmask, labeled
+                gc.collect()
+                ctypes.CDLL('libc.so.6').malloc_trim(0)
+                continue
 
+            ct_arr = blosc2.open(join(folder, key + '.b2nd'), mode='r')[:]  #type:ignore
+
+            for cc_id in small_ccs:
+                cc_mask = (labeled == cc_id)
                 coords = np.where(cc_mask)
                 z0, z1 = int(coords[0].min()), int(coords[0].max()) + 1
                 y0, y1 = int(coords[1].min()), int(coords[1].max()) + 1
@@ -247,8 +279,10 @@ class CopyPasteMixin:
                 y0m, y1m = max(0, y0-m), min(Y, y1+m)
                 x0m, x1m = max(0, x0-m), min(X, x1+m)
 
-                ct_roi    = ct_arr[:, z0m:z1m, y0m:y1m, x0m:x1m].astype(np.float32)  # (C,dz,dy,dx)
-                tmask_roi = cc_mask[z0m:z1m, y0m:y1m, x0m:x1m]                        # (dz,dy,dx) bool
+                ct_roi    = ct_arr[:, z0m:z1m, y0m:y1m, x0m:x1m].astype(np.float32) #type:ignore
+                # 必须 .copy()：切片是视图，torch.from_numpy 会共享内存锁住整卷 cc_mask(~82MB)
+                tmask_roi = cc_mask[z0m:z1m, y0m:y1m, x0m:x1m].copy()#就是这一行决定了为什么copypaste内存会爆炸
+                #加一个.copy()就解决了内存爆炸的问题
 
                 self._cp_library.append({
                     'ct':    torch.from_numpy(ct_roi),
@@ -256,7 +290,12 @@ class CopyPasteMixin:
                 })
                 n_loaded += 1
 
-        self.print_to_log_file(
+            # 每处理完一个 case 立即释放大数组，并强制 C allocator 归还内存给 OS
+            del ct_arr, seg_arr, tmask, labeled
+            gc.collect()
+            ctypes.CDLL('libc.so.6').malloc_trim(0)
+
+        self.print_to_log_file( #type:ignore
             f"[CopyPaste] library built: {n_loaded} ROIs "
             f"(CP_MAX_LOCS={self.CP_MAX_LOCS}, CP_MARGIN={self.CP_MARGIN}, "
             f"no_tumor_keys={len(self._no_tumor_keys)} 跳过粘贴)"
@@ -266,22 +305,24 @@ class CopyPasteMixin:
     # 粘贴逻辑                                                             #
     # ------------------------------------------------------------------ #
     def train_step(self, batch: dict) -> dict:
-        if self._cp_library:
-            batch = self._apply_copy_paste(batch)
-        return super().train_step(batch)
+        if self._cp_library:#self._cp_library是建好的小肿瘤库
+            batch = self._apply_copy_paste(batch)#这个是实际的粘贴操作
+        return super().train_step(batch) #type:ignore
 
     def _apply_copy_paste(self, batch: dict) -> dict:
         data      = batch['data']    # (B,C,PZ,PY,PX) CPU float32
         target    = batch['target']  # list[(B,1,...)] 或 (B,1,PZ,PY,PX) int16
-        tumor_cls = self.label_manager.foreground_labels[-1]
+        tumor_cls = self.label_manager.foreground_labels[-1]#type:ignore
 
         B, C, PZ, PY, PX = data.shape
         seg_full = target[0] if isinstance(target, list) else target  # (B,1,PZ,PY,PX)
+        # batch['keys'] 可能是 numpy 数组，转 list 避免数组真值歧义
         batch_keys = batch.get('keys', [])
+        batch_keys = list(batch_keys) if batch_keys is not None else []
 
         for b in range(B):
             # 无肿瘤 case 跳过粘贴，防止污染训练分布导致推理误报
-            if batch_keys and b < len(batch_keys) and batch_keys[b] in self._no_tumor_keys:
+            if b < len(batch_keys) and batch_keys[b] in self._no_tumor_keys:
                 continue
             if np.random.random() > self.CP_PROB:
                 continue
@@ -295,10 +336,10 @@ class CopyPasteMixin:
                 continue
 
             # 有效粘贴区域：前景且非肿瘤（对 Dataset003 即肝脏体素）
+            #seg_full是整个batch的分割标签,(B,1,PZ,PY,PX) int16 tensor
             seg_b = seg_full[b, 0]           # (PZ,PY,PX) int16 tensor
+            #seg_b是(PZ,PY,PX)的分割标签,值是0/1/2的整数数组
             valid = (seg_b > 0) & (seg_b != tumor_cls)
-            if not valid.any():
-                valid = seg_b > 0            # fallback：任意前景
             if not valid.any():
                 continue
 
@@ -308,14 +349,22 @@ class CopyPasteMixin:
                 continue
 
             vc      = torch.nonzero(valid, as_tuple=False)  # (N,3)
-            pick    = vc[torch.randint(len(vc), (1,)).item()]
+            #torch.randint的第一个参数len(vc)是生成的随机整数范围是[0,len(vc))
+            #第二个参数(1,)是生成的tensor的形状
+            #item()是把只有一个元素的tensor变成普通的int
+            pick    = vc[torch.randint(len(vc), (1,)).item()] #type:ignore
             pz = int((pick[0] - dz//2).clamp(0, max_z))
             py = int((pick[1] - dy//2).clamp(0, max_y))
             px = int((pick[2] - dx//2).clamp(0, max_x))
-
+#pick 是随机选出的肝脏体素坐标[z,y,x]作为粘贴的目标中心点
             # 粘贴 CT（仅肿瘤 mask 体素）
+            #data:(B,C,PZ,PY,PX) float32 tensor,CT图像的HU值,
+            #ct_r:(C,dz,dy,dx) float32 tensor,小肿瘤的CT值
+            #ct_r是库里整个肿瘤ROI的CT值
             patch_ct = data[b, :, pz:pz+dz, py:py+dy, px:px+dx].clone()  # (C,dz,dy,dx)
             patch_ct[:, tm_r] = ct_r[:, tm_r]
+            #tm_r是肿瘤掩码,shape:(dz,dy,dx) bool tensor,表示小肿瘤ROI内的体素
+            #.clone()是独立拷贝
             data[b, :, pz:pz+dz, py:py+dy, px:px+dx] = patch_ct
 
             # 粘贴 seg label
@@ -342,6 +391,12 @@ class UnifiedFocalLossMixin:
         UFL_LAMBDA: float = 0.5   UFL 项相对默认 loss 的整体权重
         UFL_DELTA:  float = 0.5   Tversky delta（0.5=对称；>0.5 → 漏检惩罚 > 误报惩罚）
         UFL_GAMMA:  float = 0.2   focal 参数（越大越聚焦难样本）
+    总的loss=CE+Dice+lambda*AUFL
+
+    这个类没有父类,但是经常是组合使用,类似
+    class MyTrainer(nnUNetTrainerV2,UnifiedFocalLossMixin):
+    MRO方法解析顺序
+    
     """
 
     UFL_LAMBDA: float = 0.5
@@ -349,11 +404,14 @@ class UnifiedFocalLossMixin:
     UFL_GAMMA:  float = 0.2
 
     def _build_loss(self):
-        base      = super()._build_loss()
+        #super()沿着MRO找到nnUNetTrainer._build_loss(),返回nnUNet的默认的CE+Dice loss对象,存进base
+
+        base      = super()._build_loss()#type:ignore
         AUFL      = _load_aufl()
+        #weight=0.5是内部AsymFTL和AsymFL的各自占50%
         ufl_fn    = AUFL(weight=0.5, delta=self.UFL_DELTA, gamma=self.UFL_GAMMA)
-        tumor_cls = self.label_manager.foreground_labels[-1]
-        self.print_to_log_file(
+        tumor_cls = self.label_manager.foreground_labels[-1]#type:ignore
+        self.print_to_log_file(#type:ignore
             f"[UnifiedFocalLoss] AUFL added: lambda={self.UFL_LAMBDA}, "
             f"delta={self.UFL_DELTA}, gamma={self.UFL_GAMMA}, tumor_cls={tumor_cls}"
         )
@@ -385,25 +443,29 @@ class BboxJitterMixin:
 
     def train_step(self, batch: dict) -> dict:
         batch['data'] = self._apply_bbox_jitter(batch['data'])
-        return super().train_step(batch)
+        return super().train_step(batch)#type:ignore
 
     def _apply_bbox_jitter(self, data: torch.Tensor) -> torch.Tensor:
         """
         data: (B, C, Z, Y, X) float32 CPU Tensor
         随机对 1-3 个面置零边界条带，模拟 Stage1 crop 偏差。
         """
-        spacing = self.configuration_manager.spacing  # [sp_z, sp_y, sp_x] mm/voxel
+        spacing = self.configuration_manager.spacing  #type:ignore # [sp_z, sp_y, sp_x] mm/voxel
         max_vox = [max(1, int(np.ceil(self.JITTER_MAX_MM / s))) for s in spacing]
-
+#np.ceil()是向上取整,无论小数多小,只要有小数就进一位
         data = data.clone()
         B = data.shape[0]
         for b in range(B):
             if np.random.random() >= self.JITTER_P:
                 continue
+#n_faces是随机决定这次扰动几个面,范围是[1,4)
             n_faces = np.random.randint(1, 4)
+#replace=False不放回抽样,选出的编号不会重复,
+#faces是随机选出的编号,范围是[0,6),形状是(n_faces,)
             faces   = np.random.choice(6, size=n_faces, replace=False)
             for face in faces:
                 ax   = int(face) // 2          # 0=Z, 1=Y, 2=X
+#0是起始端(上/前/左),1是末端(下/后/右)
                 side = int(face) % 2           # 0=start, 1=end
                 ax_size = data.shape[ax + 2]   # shape: (B, C, Z, Y, X)
                 n_drop  = np.random.randint(1, max_vox[ax] + 1)
@@ -433,18 +495,16 @@ class AutoReportMixin:
     """
 
     def perform_actual_validation(self, save_probabilities: bool = False):
-        super().perform_actual_validation(save_probabilities)
+        super().perform_actual_validation(save_probabilities)#type:ignore
         try:
-            from nnunetv2.paths import nnUNet_preprocessed, nnUNet_raw
-            from pumengyu.tools.analyasis.auto_report import run_auto_report
-
-            dataset_name = self.plans_manager.dataset_name
-            fold_dir = Path(self.output_folder)
+          
+            dataset_name = self.plans_manager.dataset_name#type:ignore
+            fold_dir = Path(self.output_folder)#type:ignore
             gt_dir   = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
             img_dir  = Path(nnUNet_raw)           / dataset_name / "imagesTr"
 
-            self.print_to_log_file(f"[AutoReport] 生成报告: {fold_dir.name}")
-            run_auto_report(fold_dir, gt_dir, img_dir, min_tumor_size=100)
-            self.print_to_log_file("[AutoReport] 报告生成完成")
+            self.print_to_log_file(f"[AutoReport] 生成报告: {fold_dir.name}")#type:ignore
+            run_auto_report(fold_dir, gt_dir, img_dir, min_tumor_size=0)
+            self.print_to_log_file("[AutoReport] 报告生成完成")#type:ignore
         except Exception as e:
-            self.print_to_log_file(f"[AutoReport] 失败: {e}")
+            self.print_to_log_file(f"[AutoReport] 失败: {e}")#type:ignore

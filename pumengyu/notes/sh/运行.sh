@@ -33,3 +33,9 @@ done
 CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_UFL_v2
 
 CUDA_VISIBLE_DEVICES=1  nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste_v2
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste_v2 2>&1 | tee /tmp/copypaste_v2_debug.txt
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste_v2 

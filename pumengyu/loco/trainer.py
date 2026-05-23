@@ -100,7 +100,7 @@ class LCCLoss(nn.Module):
 
         sim    = torch.mm(z_hard, proto_mat.T) / self.temp          # [N, K]
         target = torch.tensor(
-            [cls2idx.get(g.item(), -1) for g in gt_hard],
+            [cls2idx.get(g.item(), -1) for g in gt_hard],# type: ignore
             device=z_hard.device, dtype=torch.long,
         )
         valid = target >= 0
@@ -138,7 +138,7 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
         # 在最高分辨率 decoder stage 上注册 forward hook，捕获特征图
         self._decoder_features: torch.Tensor | None = None
         net = getattr(self.network, 'module', self.network)  # 兼容 DDP
-        net.decoder.stages[-1].register_forward_hook(
+        net.decoder.stages[-1].register_forward_hook( #type: ignore
             lambda m, i, o: setattr(self, '_decoder_features', o)
         )
 
@@ -146,9 +146,9 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
         patch = self.configuration_manager.patch_size
         with torch.no_grad():
             dummy = torch.zeros(
-                1, self.num_input_channels, *patch, device=self.device)
-            self.network(dummy)
-        feat_dim = self._decoder_features.shape[1]
+                1, self.num_input_channels, *patch, device=self.device)# type: ignore
+            self.network(dummy)# type: ignore
+        feat_dim = self._decoder_features.shape[1]# type: ignore
         self._decoder_features = None
 
         # MLP projector（作用于采样体素特征向量，非整张 feature map）
@@ -161,10 +161,10 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
         self._lcc = LCCLoss(self.TEMP)
 
         # 将 projector 参数加入已有 optimizer（随主网络 LR schedule 更新）
-        self.optimizer.add_param_group({
+        self.optimizer.add_param_group({# type: ignore
             'params':       list(self._projector.parameters()),
-            'lr':           self.optimizer.param_groups[0]['lr'],
-            'weight_decay': self.optimizer.param_groups[0].get('weight_decay', 3e-5),
+            'lr':           self.optimizer.param_groups[0]['lr'],# type: ignore
+            'weight_decay': self.optimizer.param_groups[0].get('weight_decay', 3e-5),# type: ignore
         })
         self.print_to_log_file(
             f"[LoCo] feat_dim={feat_dim}, PROJ_DIM={self.PROJ_DIM}, "
@@ -280,7 +280,7 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
         else:
             target = target.to(self.device, non_blocking=True)
 
-        self.optimizer.zero_grad(set_to_none=True)
+        self.optimizer.zero_grad(set_to_none=True)# type: ignore
         ctx = (autocast(self.device.type, enabled=True)
                if self.device.type == 'cuda' else dummy_context())
 
@@ -288,15 +288,15 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
         do_lcc = lam > 0 and (self.USE_BCE or self.USE_ICE)
 
         with ctx:
-            output = self.network(data)
-            l_seg  = self.loss(output, target)
+            output = self.network(data)# type: ignore
+            l_seg  = self.loss(output, target)# type: ignore
 
             l_lcc = torch.tensor(0., device=self.device)
             if do_lcc:
                 feat  = self._decoder_features   # 由 hook 捕获，带梯度
                 gt_hr = target[0] if isinstance(target, list) else target
 
-                z_s, gt_s, bnd_s = self._sample_and_project(feat, gt_hr)
+                z_s, gt_s, bnd_s = self._sample_and_project(feat, gt_hr)# type: ignore
                 protos = _class_prototypes(z_s.detach(), gt_s)
 
                 if self.USE_ICE:
@@ -311,18 +311,18 @@ class nnUNetTrainer_LoCoBase(SmallTumorOversampleMixin, AutoReportMixin, nnUNetT
 
             l = l_seg + lam * l_lcc
 
-        all_params = (list(self.network.parameters())
+        all_params = (list(self.network.parameters())# type: ignore
                       + list(self._projector.parameters()))
         if self.grad_scaler is not None:
             self.grad_scaler.scale(l).backward()
-            self.grad_scaler.unscale_(self.optimizer)
+            self.grad_scaler.unscale_(self.optimizer)# type: ignore
             torch.nn.utils.clip_grad_norm_(all_params, 12)
-            self.grad_scaler.step(self.optimizer)
+            self.grad_scaler.step(self.optimizer)# type: ignore
             self.grad_scaler.update()
         else:
             l.backward()
             torch.nn.utils.clip_grad_norm_(all_params, 12)
-            self.optimizer.step()
+            self.optimizer.step()# type: ignore
 
         return {
             'loss':  l.detach().cpu().numpy(),
