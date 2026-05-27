@@ -1,0 +1,14 @@
+{
+  "markdown-pdf.styles": [
+    "pumengyu/tools/readme_style.css",
+    "/home/PuMengYu/nnUNet/pumengyu/tools/readme_style.css"
+  ],
+  "markdown-pdf.displayHeaderFooter": true,
+  "markdown-pdf.headerTemplate": "<div style='font-size:9px;color:#666;margin-left:1.2cm;'><span class='title'></span></div><div style='font-size:9px;color:#666;margin-right:1.2cm;float:right;'><span class='date'></span></div>",
+  "markdown-pdf.footerTemplate": "<div style='font-size:9px;color:#666;width:100%;text-align:center;'><span class='pageNumber'></span> / <span class='totalPages'></span></div>",
+  "markdown-pdf.margin.top": "1.8cm",
+  "markdown-pdf.margin.bottom": "1.5cm",
+  "markdown-pdf.margin.left": "1.5cm",
+  "markdown-pdf.margin.right": "1.5cm",
+  "markdown-pdf.includeDefaultStyles": false
+}

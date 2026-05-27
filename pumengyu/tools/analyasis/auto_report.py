@@ -11,7 +11,7 @@ Trainer 中调用方式：
 
 生成文件：
   fold_dir/report_custom.json   — 每 case 的 dice_liver / dice_cancer
-  fold_dir/report_custom.txt    — 汇总统计（有/无肿瘤分开）+ per-case 分级
+  fold_dir/report_custom.txt    — 无肿瘤误报 + 综合指标（全 cases）+ per-case 分级
   fold_dir/vis_png_custom/      — 每 case 可视化 PNG（GT / Pred / Diff）
 """
 

@@ -5,7 +5,7 @@
 输出：pumengyu/notes/实验结果分析/size_density_comparison.txt
 
 用法：
-    python pumengyu/tools/size_density_analysis.py
+    python pumengyu/tools/data_analysis/size_density_analysis.py
 """
 import json, math
 from pathlib import Path

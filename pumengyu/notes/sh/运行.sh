@@ -39,3 +39,47 @@ CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste
 
 
 CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_CopyPaste_v2 
+
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 1 -tr nnUNetTrainer_CopyPaste_Diff
+for i in 1 2 3 0; do
+  CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres $i -tr nnUNetTrainer_CopyPaste_Diff
+done
+
+  nnUNetv2_train Dataset003_Liver 3d_fullres 4 -tr nnUNetTrainer_UFL_delta06
+
+
+for i in 3 0; do
+  CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 3 3d_fullres $i -tr nnUNetTrainer_UFL_delta06
+done
+
+
+
+  # 消融：仅 DOS（对照 baseline，看难度过采样单独效果）
+  nnUNetv2_train 3 3d_fullres 4 -tr Tr_DOS
+
+  # 消融：DOS + UFL（不带 CopyPaste）
+  nnUNetv2_train 3 3d_fullres 4 -tr Tr_DOS_UFL
+
+  # 消融：DOS + 难度 CopyPaste（不带 UFL）
+  nnUNetv2_train 3 3d_fullres 4 -tr Tr_DOS_DCP
+
+  # 主实验：全组合
+  nnUNetv2_train 3 3d_fullres 4 -tr Tr_DOS_DCP_UFL
+
+#我们补充UFL的实验
+● # fold0
+  nnUNetv2_train 003 3d_fullres 0 -tr nnUNetTrainer_UFL -p nnUNetPlans
+
+  # fold3
+  nnUNetv2_train 003 3d_fullres 3 -tr nnUNetTrainer_UFL -p nnUNetPlans
+
+
+  CUDA_VISIBLE_DEVICES=0 nnUNetv2_train 3 3d_fullres 4 -tr Tr_SOS
+  CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr Tr_SOS_UFL
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOversampleV2_NTFP_Ext25
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOversampleV2_Ext25

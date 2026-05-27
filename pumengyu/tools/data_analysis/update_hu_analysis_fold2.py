@@ -3,7 +3,7 @@
 补全 fold_2 Dice 到 hu_analysis.txt，并重建所有统计 section。
 
 用法:
-    python pumengyu/tools/update_hu_analysis_fold2.py
+    python pumengyu/tools/data_analysis/update_hu_analysis_fold2.py
 
 效果:
     - fold_2 的 dice_t/dice_l N/A → 来自 summary.json 的实际值

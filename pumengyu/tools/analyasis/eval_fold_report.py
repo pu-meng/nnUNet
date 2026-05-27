@@ -1,7 +1,7 @@
 """
 nnUNet fold 评估报告 + 可视化
 从 summary.json 读指标（无需重新推理），生成：
-  - report_custom.txt  (有/无肿瘤分开，按 cancer_dice 分级)
+  - report_custom.txt  (无肿瘤误报 + 综合指标 + 按 cancer_dice 分级)
   - vis_png_custom/    (每 case 若干轴向切片：GT / Pred / Diff)
 
 自动检测数据集模式：
@@ -283,10 +283,6 @@ def run_eval_report(val_dir, gt_dir, img_dir,
 
     has_tumor.sort(key=lambda x: x["dice"])
 
-    def mean_std(key):
-        vals = [r[key] for r in has_tumor]
-        return np.mean(vals), np.std(vals)
-
     liver_dices    = [r["liver_dice"] for r in has_tumor + no_tumor if r["liver_dice"] is not None]
     false_pos_cases = [r for r in no_tumor if r["pred_tumor"] > 0]
 
@@ -305,16 +301,6 @@ def run_eval_report(val_dir, gt_dir, img_dir,
         lines.append("Liver")
         lines.append(f"  Dice: mean={np.mean(liver_dices):.4f}  std={np.std(liver_dices):.4f}")
         lines.append("")
-
-    # 肿瘤（有肿瘤 case）
-    lines.append(f"Tumor (有肿瘤 case, n={len(has_tumor)})")
-    if has_tumor:
-        for metric, key in [("Dice", "dice"), ("Jaccard", "jaccard"),
-                             ("Recall", "recall"), ("FDR", "fdr"),
-                             ("FNR", "fnr"), ("Precision", "precision")]:
-            m, s = mean_std(key)
-            lines.append(f"  {metric:<12}: mean={m:.4f}  std={s:.4f}")
-    lines.append("")
 
     # 肿瘤（无肿瘤 case）
     lines.append(f"Tumor (无肿瘤 case, n={len(no_tumor)})")
@@ -345,13 +331,35 @@ def run_eval_report(val_dir, gt_dir, img_dir,
     # ── 综合指标（含无肿瘤 case）────────────────────────────────────────────
     # 无肿瘤且pred=0: TP=FP=FN=0 → Dice=0/0，约定为1（完美TN）
     # 无肿瘤但pred>0: TP=0,FP>0,FN=0 → Dice=2*0/(0+FP+0)=0（数学精确）
-    no_tumor_dices = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
-    all_dices = [r["dice"] for r in has_tumor] + no_tumor_dices
     n_tn = sum(1 for r in no_tumor if r["pred_tumor"] == 0)
     n_fp = len(false_pos_cases)
-    lines.append(f"Tumor 综合指标（含无肿瘤 case，共 {len(all_dices)} cases）")
+
+    no_tumor_dices    = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
+    no_tumor_jaccards = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
+    all_dices    = [r["dice"]    for r in has_tumor] + no_tumor_dices
+    all_jaccards = [r["jaccard"] for r in has_tumor] + no_tumor_jaccards
+
+    # Recall/FNR：仅有肿瘤 case（无肿瘤无GT，分母=0，不可计算）
+    recalls = [r["recall"] for r in has_tumor]
+    fnrs    = [r["fnr"]    for r in has_tumor]
+    # Precision/FDR：有肿瘤 + 无肿瘤误报（误报→precision=0, fdr=1，比单纯有肿瘤更严格）
+    precisions = [r["precision"] for r in has_tumor] + [0.0] * n_fp
+    fdrs       = [r["fdr"]       for r in has_tumor] + [1.0] * n_fp
+
+    lines.append(f"Tumor 综合指标（共 {len(all_dices)} cases）")
     lines.append("  无肿瘤正确(pred=0)→Dice=1(约定)，无肿瘤误报(pred>0)→Dice=0(数学精确)")
-    lines.append(f"  Dice        : mean={np.mean(all_dices):.4f}  std={np.std(all_dices):.4f}")
+    lines.append(f"  Dice        : mean={np.mean(all_dices):.4f}  std={np.std(all_dices):.4f}"
+                 f"  (全 {len(all_dices)} cases)")
+    lines.append(f"  Jaccard     : mean={np.mean(all_jaccards):.4f}  std={np.std(all_jaccards):.4f}"
+                 f"  (全 {len(all_dices)} cases，同 Dice 约定)")
+    lines.append(f"  Recall      : mean={np.mean(recalls):.4f}  std={np.std(recalls):.4f}"
+                 f"  (有肿瘤 n={len(recalls)}，无肿瘤无GT故不计入)")
+    lines.append(f"  FNR         : mean={np.mean(fnrs):.4f}  std={np.std(fnrs):.4f}"
+                 f"  (有肿瘤 n={len(fnrs)})")
+    lines.append(f"  Precision   : mean={np.mean(precisions):.4f}  std={np.std(precisions):.4f}"
+                 f"  (有肿瘤 n={len(has_tumor)} + 无肿瘤误报 n={n_fp}，误报计0)")
+    lines.append(f"  FDR         : mean={np.mean(fdrs):.4f}  std={np.std(fdrs):.4f}"
+                 f"  (有肿瘤 n={len(has_tumor)} + 无肿瘤误报 n={n_fp}，误报计1)")
     lines.append(f"  构成        : 有肿瘤 n={len(has_tumor)} mean={np.mean([r['dice'] for r in has_tumor]):.4f}"
                  f"  |  无肿瘤正确(Dice=1) n={n_tn}"
                  f"  |  无肿瘤误报(Dice=0) n={n_fp}")
