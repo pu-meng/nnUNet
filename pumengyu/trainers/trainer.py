@@ -6,10 +6,16 @@ from pumengyu.mixins import (
     CopyPasteMixin, DifficultyCopyPasteMixin,
     SmallTumorOversampleMixin,
     SizeStratifiedOversampleMixin,
-    UnifiedFocalLossMixin, AutoReportMixin,
+    UnifiedFocalLossMixin, AutoReportMixin, AutoInternalTestMixin,
     NoTumorFPPenaltyMixin,
+    ExternalNoTumorMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
+
+
+class nnUNetTrainer_Baseline(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """原版 nnUNetTrainer + 验证报告 + 训练结束自动跑内部测试集（26 cases）。"""
+    pass
 
 
 class nnUNetTrainer_UFL(UnifiedFocalLossMixin, AutoReportMixin, nnUNetTrainer):
@@ -57,6 +63,18 @@ class nnUNetTrainer_CopyPaste_Diff(
 # ------------------------------------------------------------------ #
 # 当前主线                                                            #
 # ------------------------------------------------------------------ #
+
+class nnUNetTrainer_Ext25(ExternalNoTumorMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    Baseline + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20），其余与 nnUNetTrainer 完全一致。
+
+    消融目标：隔离外部数据的独立贡献，与 SizeOversampleV2_Ext25 形成 2×2 对照：
+        Baseline            vs  Ext25               → 外部数据的独立效果
+        SizeOversampleV2    vs  SizeOversampleV2_Ext25 → 外部数据在 V2 上的增量
+
+    结果目录：nnUNetTrainer_Ext25__nnUNetPlans__3d_fullres/
+    """
+
 
 class nnUNetTrainer_SizeOversample(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
     """
@@ -125,12 +143,17 @@ class nnUNetTrainer_SizeOversampleV2_NTFP(
     SSO_NO_TUMOR_REPEAT: int = 6
 
 
-class nnUNetTrainer_SizeOversampleV2_Ext25(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+class nnUNetTrainer_SizeOversampleV2_Ext25(
+    ExternalNoTumorMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
     """
     SizeOversampleV2 + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20）。
 
-    对照实验：与 SizeOversampleV2 完全相同的过采样倍数，唯一变量是 splits 里多了
-    25 个外部无肿瘤 case，用于评估数据层扩充对 FP 率的独立贡献。
+    ExternalNoTumorMixin 在运行时向 tr_keys 追加外部 case，
+    splits_final.json 始终保持干净，不需要手动修改文件。
+
+    对照实验：与 SizeOversampleV2 完全相同的过采样倍数，
+    唯一变量是训练集多了 25 个外部无肿瘤 case。
 
     结果目录：nnUNetTrainer_SizeOversampleV2_Ext25__nnUNetPlans__3d_fullres/
     """
@@ -140,12 +163,10 @@ class nnUNetTrainer_SizeOversampleV2_Ext25(SizeStratifiedOversampleMixin, AutoRe
 
 
 class nnUNetTrainer_SizeOversampleV2_NTFP_Ext25(
-    NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+    ExternalNoTumorMixin, NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
     SizeOversampleV2_NTFP + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20）。
-
-    主实验：过采样 V2 倍数 + NTFP loss + 外部数据三路协同，评估完整方案效果。
 
     结果目录：nnUNetTrainer_SizeOversampleV2_NTFP_Ext25__nnUNetPlans__3d_fullres/
     """

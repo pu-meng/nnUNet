@@ -29,20 +29,22 @@ def run_auto_report(
     no_vis: bool = False,
     min_tumor_size: int = 0,
     out_dir=None,
+    pred_subdir: str = "validation",
 ):
     """
     参数：
-      fold_dir       fold_X 目录（包含 validation/ 子目录）
+      fold_dir       fold_X 目录
       gt_dir         preprocessed/DatasetXXX/gt_segmentations
       img_dir        raw/DatasetXXX/imagesTr
       vis_slices     每 case 可视化切片数（默认 5）
       no_vis         True 时跳过可视化，加速收尾
       min_tumor_size 后处理对比阈值，0 = 关闭
       out_dir        输出目录，None 时写到 fold_dir 根（向后兼容）
+      pred_subdir    预测结果子目录名，默认 "validation"；内部测试传 "test_prediction"
     """
     fold_dir = Path(fold_dir)
     out_dir  = Path(out_dir) if out_dir is not None else fold_dir
-    print(f"\n[auto_report] ===== 开始生成报告: {fold_dir.name} → {out_dir} =====")
+    print(f"\n[auto_report] ===== 开始生成报告: {fold_dir.name}/{pred_subdir} → {out_dir} =====")
 
     try:
         generate_report_json(fold_dir, out_dir=out_dir)
@@ -51,7 +53,7 @@ def run_auto_report(
 
     try:
         run_eval_report(
-            val_dir=fold_dir / "validation",
+            val_dir=fold_dir / pred_subdir,
             gt_dir=gt_dir,
             img_dir=img_dir,
             vis_slices=vis_slices,

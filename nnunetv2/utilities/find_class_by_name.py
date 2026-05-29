@@ -36,7 +36,10 @@ def _module_originates_from_path(module, path: str) -> bool:
         except ValueError:
             return False
 
-    module_path = getattr(module, "__path__", None)
+    try:
+        module_path = getattr(module, "__path__", None)
+    except Exception:
+        return False
     if module_path is not None:
         for candidate in module_path:
             try:
@@ -59,13 +62,13 @@ def temporarily_cleanup_imports_from_path(path: str):
     path = abspath(path)
     previously_loaded = {
         name
-        for name, module in sys.modules.items()
+        for name, module in sys.modules.copy().items()
         if module is not None and _module_originates_from_path(module, path)
     }
     try:
         yield
     finally:
-        for name, module in list(sys.modules.items()):
+        for name, module in sys.modules.copy().items():
             if (
                 name not in previously_loaded
                 and module is not None

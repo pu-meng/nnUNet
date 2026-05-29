@@ -83,3 +83,10 @@ done
 CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOversampleV2_NTFP_Ext25
 
 CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOversampleV2_Ext25
+
+
+
+  CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -p nnUNetPlans -tr nnUNetTrainer_Ext25
+
+
+    python 02_eval_ircadb.py

@@ -196,7 +196,8 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                     vis_slices: int = 5,
                     no_vis: bool = False,
                     min_tumor_size: int = 0,
-                    out_dir=None):
+                    out_dir=None,
+                    report_name: str = "report_custom.txt"):
     """
     生成 report_custom.txt 和（可选）vis_png_custom/。
 
@@ -251,6 +252,10 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                 "liver_dice": liver_dice,
                 "pred_tumor": pred_tumor,
                 "gt_liver":   gt_liver,
+                "tumor_fp":   int(m_tumor.get("FP", 0)),
+                "tumor_fn":   0,
+                "liver_fp":   int(m_liver.get("FP", 0)) if liver_label else None,
+                "liver_fn":   int(m_liver.get("FN", 0)) if liver_label else None,
             })
         else:
             tp2 = m_tumor.get("TP", 0)
@@ -267,6 +272,9 @@ def run_eval_report(val_dir, gt_dir, img_dir,
             if dice2 is None or np.isnan(dice2):
                 dice2 = 0.0
 
+            liver_fp_v = int(m_liver.get("FP", 0)) if liver_label else None
+            liver_fn_v = int(m_liver.get("FN", 0)) if liver_label else None
+
             has_tumor.append({
                 "case":       case,
                 "liver_dice": liver_dice,
@@ -279,6 +287,10 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                 "pred_tumor": pred_tumor,
                 "gt_tumor":   gt_tumor,
                 "gt_liver":   gt_liver,
+                "tumor_fp":   int(fp2),
+                "tumor_fn":   int(fn2),
+                "liver_fp":   liver_fp_v,
+                "liver_fn":   liver_fn_v,
             })
 
     has_tumor.sort(key=lambda x: x["dice"])
@@ -328,41 +340,48 @@ def run_eval_report(val_dir, gt_dir, img_dir,
         lines.append("  （无此类 case）")
     lines.append("")
 
-    # ── 综合指标（含无肿瘤 case）────────────────────────────────────────────
-    # 无肿瘤且pred=0: TP=FP=FN=0 → Dice=0/0，约定为1（完美TN）
-    # 无肿瘤但pred>0: TP=0,FP>0,FN=0 → Dice=2*0/(0+FP+0)=0（数学精确）
+    # ── 综合指标（与 nnUNet summary.json 完全一致）──────────────────────────
+    # 无肿瘤正确(GT=0,pred=0) → Dice=NaN → 从均值中排除（nanmean）
+    # 无肿瘤误报(GT=0,pred>0) → Dice=0   → 计入均值
+    # Overall = (liver_mean + tumor_mean) / 2，与 nnUNet foreground_mean 一致
     n_tn = sum(1 for r in no_tumor if r["pred_tumor"] == 0)
     n_fp = len(false_pos_cases)
 
-    no_tumor_dices    = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
-    no_tumor_jaccards = [1.0 if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
+    # NaN for TN, 0.0 for FP — 与 nnUNet compute_metrics_on_folder 行为一致
+    no_tumor_dices    = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
+    no_tumor_jaccards = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
     all_dices    = [r["dice"]    for r in has_tumor] + no_tumor_dices
     all_jaccards = [r["jaccard"] for r in has_tumor] + no_tumor_jaccards
 
-    # Recall/FNR：仅有肿瘤 case（无肿瘤无GT，分母=0，不可计算）
-    recalls = [r["recall"] for r in has_tumor]
-    fnrs    = [r["fnr"]    for r in has_tumor]
-    # Precision/FDR：有肿瘤 + 无肿瘤误报（误报→precision=0, fdr=1，比单纯有肿瘤更严格）
+    recalls    = [r["recall"]    for r in has_tumor]
+    fnrs       = [r["fnr"]       for r in has_tumor]
     precisions = [r["precision"] for r in has_tumor] + [0.0] * n_fp
     fdrs       = [r["fdr"]       for r in has_tumor] + [1.0] * n_fp
 
-    lines.append(f"Tumor 综合指标（共 {len(all_dices)} cases）")
-    lines.append("  无肿瘤正确(pred=0)→Dice=1(约定)，无肿瘤误报(pred>0)→Dice=0(数学精确)")
-    lines.append(f"  Dice        : mean={np.mean(all_dices):.4f}  std={np.std(all_dices):.4f}"
-                 f"  (全 {len(all_dices)} cases)")
-    lines.append(f"  Jaccard     : mean={np.mean(all_jaccards):.4f}  std={np.std(all_jaccards):.4f}"
-                 f"  (全 {len(all_dices)} cases，同 Dice 约定)")
+    mean_tumor_dice = float(np.nanmean(all_dices))
+    std_tumor_dice  = float(np.nanstd(all_dices))
+    mean_liver_dice = np.mean(liver_dices) if liver_dices else float("nan")
+    overall         = (mean_liver_dice + mean_tumor_dice) / 2 if show_liver else mean_tumor_dice
+    n_valid         = sum(1 for d in all_dices if not np.isnan(d))
+
+    lines.append(f"Tumor 综合指标（与 nnUNet foreground_mean 一致）")
+    lines.append(f"  无肿瘤正确(TN, n={n_tn}) → Dice=NaN 排除；无肿瘤误报(FP, n={n_fp}) → Dice=0 计入")
+    lines.append(f"  Dice        : mean={mean_tumor_dice:.4f}  std={std_tumor_dice:.4f}"
+                 f"  (参与计算 n={n_valid}，排除 TN n={n_tn})")
+    lines.append(f"  Jaccard     : mean={float(np.nanmean(all_jaccards)):.4f}"
+                 f"  std={float(np.nanstd(all_jaccards)):.4f}")
     lines.append(f"  Recall      : mean={np.mean(recalls):.4f}  std={np.std(recalls):.4f}"
-                 f"  (有肿瘤 n={len(recalls)}，无肿瘤无GT故不计入)")
-    lines.append(f"  FNR         : mean={np.mean(fnrs):.4f}  std={np.std(fnrs):.4f}"
-                 f"  (有肿瘤 n={len(fnrs)})")
+                 f"  (有肿瘤 n={len(recalls)})")
+    lines.append(f"  FNR         : mean={np.mean(fnrs):.4f}  std={np.std(fnrs):.4f}")
     lines.append(f"  Precision   : mean={np.mean(precisions):.4f}  std={np.std(precisions):.4f}"
-                 f"  (有肿瘤 n={len(has_tumor)} + 无肿瘤误报 n={n_fp}，误报计0)")
-    lines.append(f"  FDR         : mean={np.mean(fdrs):.4f}  std={np.std(fdrs):.4f}"
-                 f"  (有肿瘤 n={len(has_tumor)} + 无肿瘤误报 n={n_fp}，误报计1)")
-    lines.append(f"  构成        : 有肿瘤 n={len(has_tumor)} mean={np.mean([r['dice'] for r in has_tumor]):.4f}"
-                 f"  |  无肿瘤正确(Dice=1) n={n_tn}"
-                 f"  |  无肿瘤误报(Dice=0) n={n_fp}")
+                 f"  (有肿瘤+误报 n={len(precisions)})")
+    lines.append(f"  FDR         : mean={np.mean(fdrs):.4f}  std={np.std(fdrs):.4f}")
+    if show_liver:
+        lines.append(f"  Overall     : (liver {mean_liver_dice:.4f} + tumor {mean_tumor_dice:.4f}) / 2"
+                     f" = {overall:.4f}  ← 与 nnUNet foreground_mean 一致")
+    lines.append(f"  构成        : 有肿瘤 n={len(has_tumor)}"
+                 f"  |  无肿瘤TN(排除) n={n_tn}"
+                 f"  |  无肿瘤FP(计0) n={n_fp}")
     lines.append("")
 
     # ── 按肿瘤大小分组统计 ───────────────────────────────────────────────
@@ -372,6 +391,82 @@ def run_eval_report(val_dir, gt_dir, img_dir,
         ("中等(50k-300k)",  lambda g: 50_000 <= g < 300_000),
         ("大(>=300k)",      lambda g: g >= 300_000),
     ]
+    # ── 每个 case 的 voxel volume（mm³），从预测 nii.gz 读 spacing ────────
+    vox_vol: dict[str, float] = {}
+    for r in has_tumor + no_tumor:
+        case = r["case"]
+        nii_path = val_dir / f"{case}.nii.gz"
+        if nii_path.exists():
+            hdr = nib.load(str(nii_path)).header
+            zooms = hdr.get_zooms()[:3]
+            vox_vol[case] = float(zooms[0] * zooms[1] * zooms[2])
+        else:
+            vox_vol[case] = 1.0  # fallback: 体素数
+
+    def to_mm3(case, voxels):
+        return voxels * vox_vol.get(case, 1.0)
+
+    # ── FPV / FNV 体积误差（mm³）────────────────────────────────────────
+    all_cases = has_tumor + no_tumor
+    t_fpv_mm3 = [to_mm3(r["case"], r["tumor_fp"]) for r in all_cases]
+    t_fnv_mm3 = [to_mm3(r["case"], r["tumor_fn"]) for r in all_cases]
+
+    lines.append("FPV / FNV 体积误差（mm³，体素数 × spacing）")
+    lines.append(f"  {'':20} {'FPV总量(mm³)':>14} {'FPV均值/case':>14} {'FNV总量(mm³)':>14} {'FNV均值/case':>14}")
+    lines.append(f"  {'Tumor':20} {int(sum(t_fpv_mm3)):>14,} {np.mean(t_fpv_mm3):>14,.1f}"
+                 f" {int(sum(t_fnv_mm3)):>14,} {np.mean(t_fnv_mm3):>14,.1f}")
+    if show_liver:
+        l_fpv_mm3 = [to_mm3(r["case"], r["liver_fp"]) for r in all_cases if r.get("liver_fp") is not None]
+        l_fnv_mm3 = [to_mm3(r["case"], r["liver_fn"]) for r in all_cases if r.get("liver_fn") is not None]
+        lines.append(f"  {'Liver':20} {int(sum(l_fpv_mm3)):>14,} {np.mean(l_fpv_mm3):>14,.1f}"
+                     f" {int(sum(l_fnv_mm3)):>14,} {np.mean(l_fnv_mm3):>14,.1f}")
+
+    lines.append(f"\n  Per-case Tumor FPV（从高到低，前10）")
+    lines.append(f"  {'case':<20} {'FPV(mm³)':>12} {'FNV(mm³)':>12} {'gt_tumor(vox)':>14} {'size_cat':<16}")
+    sorted_fp = sorted(all_cases, key=lambda r: to_mm3(r["case"], r["tumor_fp"]), reverse=True)[:10]
+    for r in sorted_fp:
+        sc = size_cat(r.get("gt_tumor", 0)) if r.get("gt_tumor", 0) > 0 else "无肿瘤"
+        lines.append(f"  {r['case']:<20} {int(to_mm3(r['case'],r['tumor_fp'])):>12,}"
+                     f" {int(to_mm3(r['case'],r['tumor_fn'])):>12,}"
+                     f" {fmt_n(r.get('gt_tumor',0)):>14} {sc:<16}")
+    lines.append("")
+
+    # ── 病灶级检出率（lesion-wise detection rate）───────────────────────
+    from scipy.ndimage import label as _cc_label
+    LESION_THRESHOLDS = [0, 10, 100, 500]
+    lesion_stats: dict[int, dict] = {t: {"total": 0, "detected": 0} for t in LESION_THRESHOLDS}
+
+    for r in all_cases:
+        case = r["case"]
+        gt_path   = gt_dir  / f"{case}.nii.gz"
+        pred_path = val_dir / f"{case}.nii.gz"
+        if not gt_path.exists() or not pred_path.exists():
+            continue
+        gt_arr   = nib.load(str(gt_path)).get_fdata().astype("uint8")
+        pred_arr = nib.load(str(pred_path)).get_fdata().astype("uint8")
+        labeled, n_comp = _cc_label(gt_arr == int(tumor_cls))
+        pred_tumor_mask = (pred_arr == int(tumor_cls))
+        for i in range(1, n_comp + 1):
+            comp = (labeled == i)
+            vol  = int(comp.sum())
+            hit  = bool((comp & pred_tumor_mask).sum() > 0)
+            for t in LESION_THRESHOLDS:
+                if vol >= t:
+                    lesion_stats[t]["total"] += 1
+                    if hit:
+                        lesion_stats[t]["detected"] += 1
+
+    lines.append("病灶级检出率（lesion-wise detection rate）")
+    lines.append(f"  {'最小体素阈值':>10}  {'GT病灶数':>8}  {'检出数':>8}  {'检出率':>8}  {'漏检数':>8}")
+    for t in LESION_THRESHOLDS:
+        st = lesion_stats[t]
+        n, d = st["total"], st["detected"]
+        if n == 0:
+            continue
+        lines.append(f"  >= {t:>4} 体素  {n:>8}  {d:>8}  {d/n*100:>7.1f}%  {n-d:>8}")
+    lines.append(f"  注：>=100体素为临床有意义阈值，>=0含标注噪声碎片")
+    lines.append("")
+
     lines.append("Tumor Dice 按大小分组 (有肿瘤 case)")
     lines.append(f"  {'大小分类':<16} {'n':>4}  {'Dice mean':>10}  {'Dice std':>9}  {'Recall':>8}  {'Precision':>10}")
     lines.append("  " + "-" * 68)
@@ -387,7 +482,7 @@ def run_eval_report(val_dir, gt_dir, img_dir,
             lines.append(f"  {label:<16} {0:>4}  {'—':>10}")
     lines.append("")
 
-    # ── Per-Case 分级 ────────────────────────────────────────────────────
+    # ── Per-Case 分级（有肿瘤 case）────────────────────────────────────────
     lines.append(_section_header("Per-Case 分级(按 tumor_dice 从低到高)"))
 
     col_hdr = _col_hdr(show_liver)
@@ -406,6 +501,22 @@ def run_eval_report(val_dir, gt_dir, img_dir,
             lines.append(_row(r["case"], r["dice"], r["recall"], r["precision"],
                               r["fdr"], r["pred_tumor"], r["gt_tumor"],
                               r["gt_liver"], show_liver))
+
+    # ── 无肿瘤误报 case 详情 ─────────────────────────────────────────────
+    # 误报越少 → liver FN 越少 → liver Dice 越高 → Overall 越高
+    if false_pos_cases:
+        fp_col = (f"  {'case':<20} {'liver_dice':>10} {'pred_tumor':>12}"
+                  f" {'gt_liver':>10}  说明")
+        lines.append(f"\n[无肿瘤误报] tumor_dice=0，体现为 liver Dice 下降  (n={len(false_pos_cases)})")
+        lines.append(SEP)
+        lines.append(fp_col)
+        lines.append(SEP)
+        for r in sorted(false_pos_cases, key=lambda x: x["pred_tumor"], reverse=True):
+            ld = f"{r['liver_dice']:.4f}" if r["liver_dice"] is not None else "N/A"
+            lines.append(f"  {r['case']:<20} {ld:>10} {fmt_n(r['pred_tumor']):>12}"
+                         f" {fmt_n(r['gt_liver']):>10}  GT无肿瘤,预测出{fmt_n(r['pred_tumor'])}体素")
+    else:
+        lines.append(f"\n[无肿瘤误报] 无  (全部 {len(no_tumor)} 个无肿瘤 case 均正确预测为阴性 ✓)")
 
     # ── 后处理对比（可选）────────────────────────────────────────────────
     if min_tumor_size > 0:
@@ -466,7 +577,7 @@ def run_eval_report(val_dir, gt_dir, img_dir,
             lines.append(f"  Recall   Δ={np.mean(delta_recall):+.4f}")
             lines.append(f"  FDR      Δ={np.mean(delta_fdr):+.4f}")
 
-    report_path = out_dir / "report_custom.txt"
+    report_path = out_dir / report_name
     report_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"[eval_fold_report] report -> {report_path}")
 

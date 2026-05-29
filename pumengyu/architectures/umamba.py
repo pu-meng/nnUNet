@@ -20,7 +20,7 @@ Mamba 实现策略：
 from __future__ import annotations
 from typing import List, Tuple, Type, Union
 
-import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -191,11 +191,11 @@ class UMambaBot3D(PlainConvUNet):
         n_conv_per_stage_decoder,
         conv_bias: bool = False,
         norm_op=None,
-        norm_op_kwargs: dict = None,
+        norm_op_kwargs: dict = None,#type:ignore
         dropout_op=None,
-        dropout_op_kwargs: dict = None,
+        dropout_op_kwargs: dict = None,#type:ignore
         nonlin=None,
-        nonlin_kwargs: dict = None,
+        nonlin_kwargs: dict = None,#type:ignore
         deep_supervision: bool = False,
         nonlin_first: bool = False,
         mamba_d_state: int = 16,

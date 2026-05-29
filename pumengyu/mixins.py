@@ -777,6 +777,7 @@ class _NoTumorFPWrapper(torch.nn.Module):
     对 batch 中 GT 完全无肿瘤的 sample，在基础 loss 之上额外叠加
     "预测肿瘤概率均值" 作为惩罚项，促使模型在无肿瘤 patch 上不乱预测肿瘤。
     有肿瘤 sample 的 loss 路径不受任何影响。
+    也就是无肿瘤的patch的预测的肿瘤概率取均值作为额外的惩罚加入loss
     """
 
     def __init__(self, base_loss, tumor_cls_idx: int, penalty_lambda: float):
@@ -907,7 +908,7 @@ class AutoReportMixin:
     def perform_actual_validation(self, save_probabilities: bool = False):
         super().perform_actual_validation(save_probabilities)#type:ignore
         try:
-          
+
             dataset_name = self.plans_manager.dataset_name#type:ignore
             fold_dir = Path(self.output_folder)#type:ignore
             gt_dir   = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
@@ -918,3 +919,200 @@ class AutoReportMixin:
             self.print_to_log_file("[AutoReport] 报告生成完成")#type:ignore
         except Exception as e:
             self.print_to_log_file(f"[AutoReport] 失败: {e}")#type:ignore
+
+
+class AutoInternalTestMixin:
+    """
+    perform_actual_validation 结束后，自动对 split_info_712.json 中的 test 集进行推理并生成报告。
+    预测结果保存到 fold_X/test_prediction/，报告写到 fold_X/test_report_custom.txt。
+
+    使用方式（MRO 需在 AutoReportMixin 左侧）：
+        class MyTrainer(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer): ...
+    """
+
+    SPLIT_INFO_FILENAME = "split_info_712.json"
+
+    def perform_actual_validation(self, save_probabilities: bool = False):
+        super().perform_actual_validation(save_probabilities)  # type: ignore
+        if getattr(self, "local_rank", 0) != 0:
+            return
+        try:
+            self._run_internal_test_prediction(save_probabilities)
+        except Exception as e:
+            self.print_to_log_file(  # type: ignore
+                f"[InternalTest] 推理失败: {e}", also_print_to_console=True
+            )
+
+    def _run_internal_test_prediction(self, save_probabilities: bool = False):
+        import json
+        import multiprocessing
+        import warnings
+        from time import sleep
+
+        import numpy as np
+        import torch
+        from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p
+        from nnunetv2.configuration import default_num_processes
+        from nnunetv2.inference.export_prediction import export_prediction_from_logits
+        from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+        from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import check_workers_alive_and_busy
+        from nnunetv2.utilities.helpers import empty_cache, dummy_context
+        from torch._dynamo import OptimizedModule
+
+        from pumengyu.tools.analyasis.eval_fold_report import run_eval_report
+
+        # 读取 test keys
+        split_info_path = (
+            Path(nnUNet_preprocessed) / self.plans_manager.dataset_name / self.SPLIT_INFO_FILENAME  # type: ignore
+        )
+        if not split_info_path.exists():
+            self.print_to_log_file(f"[InternalTest] {split_info_path} 不存在，跳过")  # type: ignore
+            return
+
+        with open(split_info_path) as f:
+            split_info = json.load(f)
+        test_keys = split_info["test"]["cases"]
+        self.print_to_log_file(  # type: ignore
+            f"[InternalTest] 开始推理 {len(test_keys)} 个 test cases ...", also_print_to_console=True
+        )
+
+        # 构建 predictor（与 perform_actual_validation 完全相同的参数）
+        self.set_deep_supervision_enabled(False)  # type: ignore
+        self.network.eval()  # type: ignore
+
+        predictor = nnUNetPredictor(
+            tile_step_size=0.5, use_gaussian=True, use_mirroring=True,
+            perform_everything_on_device=True, device=self.device,  # type: ignore
+            verbose=False, verbose_preprocessing=False, allow_tqdm=False,
+        )
+        predictor.manual_initialization(
+            self.network, self.plans_manager, self.configuration_manager,  # type: ignore
+            None, self.dataset_json, self.__class__.__name__,  # type: ignore
+            self.inference_allowed_mirroring_axes,  # type: ignore
+        )
+
+        test_output_folder = _os.path.join(self.output_folder, "test_prediction")  # type: ignore
+        maybe_mkdir_p(test_output_folder)
+
+        dataset_test = self.dataset_class(  # type: ignore
+            self.preprocessed_dataset_folder, test_keys,  # type: ignore
+            folder_with_segs_from_previous_stage=self.folder_with_segs_from_previous_stage,  # type: ignore
+        )
+
+        with multiprocessing.get_context("spawn").Pool(default_num_processes) as pool:
+            worker_list = [i for i in pool._pool]
+            results = []
+
+            for k in dataset_test.identifiers:
+                proceed = not check_workers_alive_and_busy(pool, worker_list, results, allowed_num_queued=2)
+                while not proceed:
+                    sleep(0.1)
+                    proceed = not check_workers_alive_and_busy(pool, worker_list, results, allowed_num_queued=2)
+
+                self.print_to_log_file(f"[InternalTest] predicting {k}")  # type: ignore
+                data, _, seg_prev, properties = dataset_test.load_case(k)
+                data = data[:]
+
+                if self.is_cascaded:  # type: ignore
+                    from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot
+                    seg_prev = seg_prev[:]
+                    data = np.vstack((
+                        data,
+                        convert_labelmap_to_one_hot(
+                            seg_prev, self.label_manager.foreground_labels, output_dtype=data.dtype  # type: ignore
+                        ),
+                    ))
+
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    data = torch.from_numpy(data)
+
+                output_filename_truncated = _os.path.join(test_output_folder, k)
+                prediction = predictor.predict_sliding_window_return_logits(data)
+                prediction = prediction.cpu()
+
+                results.append(pool.starmap_async(
+                    export_prediction_from_logits,
+                    ((prediction, properties, self.configuration_manager, self.plans_manager,  # type: ignore
+                      self.dataset_json, output_filename_truncated, save_probabilities),),  # type: ignore
+                ))
+
+            _ = [r.get() for r in results]
+
+        self.print_to_log_file("[InternalTest] 推理完成，计算指标 ...", also_print_to_console=True)  # type: ignore
+
+        from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder
+        from nnunetv2.configuration import default_num_processes
+
+        dataset_name = self.plans_manager.dataset_name  # type: ignore
+        gt_dir  = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
+        img_dir = Path(nnUNet_raw)           / dataset_name / "imagesTr"
+
+        # 生成 summary.json（run_eval_report 依赖此文件）
+        compute_metrics_on_folder(
+            folder_ref=str(gt_dir),
+            folder_pred=test_output_folder,
+            output_file=_os.path.join(test_output_folder, "summary.json"),
+            image_reader_writer=self.plans_manager.image_reader_writer_class(),  # type: ignore
+            file_ending=self.dataset_json["file_ending"],  # type: ignore
+            regions_or_labels=(
+                self.label_manager.foreground_regions  # type: ignore
+                if self.label_manager.has_regions  # type: ignore
+                else self.label_manager.foreground_labels  # type: ignore
+            ),
+            ignore_label=self.label_manager.ignore_label,  # type: ignore
+            chill=True,
+            num_processes=default_num_processes,
+        )
+
+        self.print_to_log_file("[InternalTest] 生成报告 ...", also_print_to_console=True)  # type: ignore
+
+        run_eval_report(
+            val_dir=Path(test_output_folder),
+            gt_dir=gt_dir,
+            img_dir=img_dir,
+            no_vis=True,
+            min_tumor_size=0,
+            out_dir=Path(self.output_folder),  # type: ignore
+            report_name="test_report_custom.txt",
+        )
+
+        self.print_to_log_file(
+            "[InternalTest] 完成！报告已写入 test_report_custom.txt",
+            also_print_to_console=True,
+        )  # type: ignore
+
+
+class ExternalNoTumorMixin:
+    """
+    向训练集注入外部无肿瘤 case，不修改 splits_final.json。
+
+    原理：覆盖 do_split()，在父类返回的 tr_keys 基础上追加
+    EXT_CASES 列表里的 case identifier。val_keys 不受影响。
+
+    外部 case 必须已经过 nnUNetv2_preprocess 处理，即
+    preprocessed/DatasetXXX/nnUNetPlans_3d_fullres/ 下存在对应的 .b2nd 文件。
+
+    可覆盖的类变量：
+        EXT_CASES  外部 case identifier 列表（默认为 Ext25：20 CHAOS + 5 IRCADb）
+    """
+
+    EXT_CASES: list = [
+        # 20 × CHAOS CT（无肿瘤肝脏）
+        "chaos_001", "chaos_002", "chaos_005", "chaos_006", "chaos_008",
+        "chaos_010", "chaos_014", "chaos_016", "chaos_018", "chaos_019",
+        "chaos_021", "chaos_022", "chaos_023", "chaos_024", "chaos_025",
+        "chaos_026", "chaos_027", "chaos_028", "chaos_029", "chaos_030",
+        # 5 × IRCADb（无肿瘤）
+        "ircad_005", "ircad_007", "ircad_011", "ircad_014", "ircad_020",
+    ]
+
+    def do_split(self):
+        tr_keys, val_keys = super().do_split()  # type: ignore
+        added = [k for k in self.EXT_CASES if k not in tr_keys]
+        tr_keys = list(tr_keys) + added
+        self.print_to_log_file(  # type: ignore
+            f"[ExternalNoTumorMixin] 注入外部 case {len(added)} 个，"
+            f"训练集从 {len(tr_keys) - len(added)} → {len(tr_keys)}"
+        )
+        return tr_keys, val_keys
