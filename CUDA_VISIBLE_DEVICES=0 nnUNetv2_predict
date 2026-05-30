@@ -1,0 +1,7 @@
+  CUDA_VISIBLE_DEVICES=0 nnUNetv2_predict \
+    -i /home/PuMengYu/nnUNet_workspace/raw/Dataset003_Liver/imagesTr \
+    -o /home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_Baseline__nnUNetPlans__3d_fullres/fold_0/all_prediction 
+
+
+
+    /home/PuMengYu/minGPT

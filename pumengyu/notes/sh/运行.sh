@@ -90,3 +90,6 @@ CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOvers
 
 
     python 02_eval_ircadb.py
+
+
+ nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_SizeOversampleV3 -num_gpus 2

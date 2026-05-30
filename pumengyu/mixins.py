@@ -385,6 +385,7 @@ class SizeStratifiedOversampleMixin:
     SSO_NO_TUMOR_REPEAT: int = 3
     SSO_TINY_REPEAT:     int = 3
     SSO_SMALL_REPEAT:    int = 2
+    SSO_MID_REPEAT:      int = 1
     SSO_HUGE_REPEAT:     int = 3
 
     def get_tr_and_val_datasets(self):
@@ -437,7 +438,7 @@ class SizeStratifiedOversampleMixin:
                 r = self.SSO_HUGE_REPEAT
                 counts['huge'] += 1
             else:
-                r = 1
+                r = self.SSO_MID_REPEAT
                 counts['mid'] += 1
             extra.extend([key] * (r - 1))
 
@@ -452,7 +453,7 @@ class SizeStratifiedOversampleMixin:
             f"  无肿瘤={counts['no_tumor']}×{self.SSO_NO_TUMOR_REPEAT}, "
             f"极小={counts['tiny']}×{self.SSO_TINY_REPEAT}, "
             f"小={counts['small']}×{self.SSO_SMALL_REPEAT}, "
-            f"中/大={counts['mid']}×1, "
+            f"中/大={counts['mid']}×{self.SSO_MID_REPEAT}, "
             f"极大={counts['huge']}×{self.SSO_HUGE_REPEAT}\n"
             f"  identifiers {n_before} → {len(dataset_tr.identifiers)}"
         )
@@ -768,6 +769,89 @@ class UnifiedFocalLossMixin:
             f"delta={self.UFL_DELTA}, gamma={self.UFL_GAMMA}, tumor_cls={tumor_cls}"
         )
         return _UFLWrapper(base, ufl_fn, tumor_cls, self.UFL_LAMBDA)
+
+
+class _AFTLWrapper(torch.nn.Module):
+    """
+    将 AsymmetricFocalTverskyLoss（肿瘤类二值化）叠加到 nnUNet 默认 loss 上。
+    复用 compound-loss 库，与 _UFLWrapper 的二值化逻辑完全一致。
+
+    Tversky = TP / (TP + delta*FN + (1-delta)*FP)
+    fore_loss = (1 - Tversky) * (1 - Tversky)^(-gamma)  ← focal 调制前景
+    back_loss = (1 - Tversky_bg)                         ← 背景不加 focal
+    """
+
+    def __init__(self, base_loss, aftl_fn, tumor_cls_idx: int, lam: float):
+        super().__init__()
+        self.base_loss = base_loss
+        self.aftl_fn   = aftl_fn
+        self.tumor_idx = tumor_cls_idx
+        self.lam       = lam
+
+    def forward(self, net_output, target):
+        base = self.base_loss(net_output, target)
+
+        logits   = net_output[0] if isinstance(net_output, list) else net_output  # (B,C,Z,Y,X)
+        tgt      = target[0]    if isinstance(target,     list) else target        # (B,1,Z,Y,X)
+
+        probs    = torch.softmax(logits.float(), dim=1)
+        p_tumor  = probs[:, self.tumor_idx]                                        # (B,Z,Y,X)
+        y_pred   = torch.stack([1.0 - p_tumor, p_tumor], dim=1)                   # (B,2,Z,Y,X)
+        tm       = (tgt[:, 0].long() == self.tumor_idx).float()                   # (B,Z,Y,X)
+        y_true   = torch.stack([1.0 - tm, tm], dim=1)                             # (B,2,Z,Y,X)
+
+        return base + self.lam * self.aftl_fn(y_pred, y_true)
+
+
+_AFTL_FILE = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)),
+    '..', 'compound-loss-pytorch-main', 'unified_focal_loss_pytorch.py'
+)
+_AFTL_CLS = None
+
+
+def _load_aftl():
+    global _AFTL_CLS
+    if _AFTL_CLS is None:
+        spec = _ilu.spec_from_file_location('unified_focal_loss_pytorch', _AFTL_FILE)
+        mod  = _ilu.module_from_spec(spec)  # type: ignore
+        spec.loader.exec_module(mod)         # type: ignore[union-attr]
+        _AFTL_CLS = mod.AsymmetricFocalTverskyLoss
+    return _AFTL_CLS
+
+
+class TverskyLossMixin:
+    """
+    在 nnUNet 默认 CE+Dice loss 基础上叠加 AsymmetricFocalTverskyLoss（肿瘤类二值化）。
+    直接复用 compound-loss-pytorch-main 库，与 UnifiedFocalLossMixin 共享同一个文件。
+
+    Tversky = TP / (TP + delta*FN + (1-delta)*FP)
+      delta=0.7 → FN 权重 0.7，FP 权重 0.3，FN 惩罚是 FP 的 2.3 倍
+      gamma=0.75 → focal 调制前景（easy 样本梯度被压制）
+      delta=0.5 退化为带 focal 的 Dice Loss
+
+    总 loss = CE+Dice（nnUNet默认）+ TVL_LAMBDA * AsymmetricFocalTverskyLoss
+
+    子类可覆盖：
+        TVL_DELTA  : float = 0.7   FN 权重（越大对漏检惩罚越重；对应库的 delta 参数）
+        TVL_GAMMA  : float = 0.75  focal 参数（控制 easy 样本的梯度压制程度）
+        TVL_LAMBDA : float = 1.0   AFTL 项相对默认 loss 的整体权重
+    """
+
+    TVL_DELTA:  float = 0.7
+    TVL_GAMMA:  float = 0.75
+    TVL_LAMBDA: float = 1.0
+
+    def _build_loss(self):
+        base      = super()._build_loss()  # type: ignore
+        AFTL      = _load_aftl()
+        aftl_fn   = AFTL(delta=self.TVL_DELTA, gamma=self.TVL_GAMMA)
+        tumor_cls = self.label_manager.foreground_labels[-1]  # type: ignore
+        self.print_to_log_file(  # type: ignore
+            f"[TverskyLoss] AsymmetricFocalTverskyLoss: delta={self.TVL_DELTA}, "
+            f"gamma={self.TVL_GAMMA}, lambda={self.TVL_LAMBDA}, tumor_cls={tumor_cls}"
+        )
+        return _AFTLWrapper(base, aftl_fn, tumor_cls, self.TVL_LAMBDA)
 
 
 class _NoTumorFPWrapper(torch.nn.Module):
@@ -1116,3 +1200,41 @@ class ExternalNoTumorMixin:
             f"训练集从 {len(tr_keys) - len(added)} → {len(tr_keys)}"
         )
         return tr_keys, val_keys
+
+
+# ------------------------------------------------------------------ #
+# 两阶段 FP 抑制 — Stage1                                             #
+# ------------------------------------------------------------------ #
+
+class TumorOnlyTrainMixin:
+    """
+    训练集过滤：只保留有肿瘤 case，无肿瘤 case 从训练集剔除。
+
+    目的（Stage1）：让模型从未见过"应全黑"的病例，推理时对无肿瘤 case 大量
+    误报，产生 FP 概率图供 Stage2 学习区分真肿瘤与 FP。
+
+    验证集不过滤，评估时仍包含无肿瘤 case（观察 FP 量）。
+    """
+
+    def get_tr_and_val_datasets(self):
+        dataset_tr, dataset_val = super().get_tr_and_val_datasets()  # type: ignore
+
+        tumor_cls = self.label_manager.foreground_labels[-1]  # type: ignore
+        folder    = self.preprocessed_dataset_folder           # type: ignore
+
+        before = len(dataset_tr.identifiers)
+        tumor_ids = []
+        for key in list(dataset_tr.identifiers):
+            props  = load_pickle(join(folder, key + '.pkl'))
+            n_locs = len(props.get('class_locations', {}).get(tumor_cls, []))
+            if n_locs > 0:
+                tumor_ids.append(key)
+
+        removed = before - len(tumor_ids)
+        dataset_tr.identifiers = tumor_ids
+
+        self.print_to_log_file(  # type: ignore
+            f"[TumorOnlyTrain] 训练集过滤: {before} → {len(tumor_ids)} case "
+            f"（移除 {removed} 个无肿瘤 case，验证集不受影响）"
+        )
+        return dataset_tr, dataset_val

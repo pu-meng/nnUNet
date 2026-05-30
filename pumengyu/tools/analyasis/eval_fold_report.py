@@ -431,12 +431,15 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                      f" {fmt_n(r.get('gt_tumor',0)):>14} {sc:<16}")
     lines.append("")
 
-    # ── 病灶级检出率（lesion-wise detection rate）───────────────────────
+    # ── 病灶检出率 + 连通域阈值分析（合并循环，每文件只读一次）─────────
     from scipy.ndimage import label as _cc_label
+    from tqdm import tqdm
     LESION_THRESHOLDS = [0, 10, 100, 500]
     lesion_stats: dict[int, dict] = {t: {"total": 0, "detected": 0} for t in LESION_THRESHOLDS}
+    fp_cc_info: list[dict] = []    # 无肿瘤 case 里的假 CC
+    tp_cc_sizes: list[int] = []    # 有肿瘤 case 里的真阳性 CC 体素数
 
-    for r in all_cases:
+    for r in tqdm(all_cases, desc="CC分析", unit="case", ncols=80, leave=True):
         case = r["case"]
         gt_path   = gt_dir  / f"{case}.nii.gz"
         pred_path = val_dir / f"{case}.nii.gz"
@@ -444,27 +447,59 @@ def run_eval_report(val_dir, gt_dir, img_dir,
             continue
         gt_arr   = nib.load(str(gt_path)).get_fdata().astype("uint8")
         pred_arr = nib.load(str(pred_path)).get_fdata().astype("uint8")
-        labeled, n_comp = _cc_label(gt_arr == int(tumor_cls))
-        pred_tumor_mask = (pred_arr == int(tumor_cls))
-        for i in range(1, n_comp + 1):
-            comp = (labeled == i)
+        gt_mask   = gt_arr  == tumor_cls
+        pred_mask = pred_arr == tumor_cls
+
+        # 病灶检出率：遍历 GT 连通域
+        labeled_gt, n_gt_comp = _cc_label(gt_mask)
+        for i in range(1, n_gt_comp + 1):
+            comp = (labeled_gt == i)
             vol  = int(comp.sum())
-            hit  = bool((comp & pred_tumor_mask).sum() > 0)
+            hit  = bool((comp & pred_mask).sum() > 0)
             for t in LESION_THRESHOLDS:
                 if vol >= t:
                     lesion_stats[t]["total"] += 1
                     if hit:
                         lesion_stats[t]["detected"] += 1
 
-    lines.append("病灶级检出率（lesion-wise detection rate）")
-    lines.append(f"  {'最小体素阈值':>10}  {'GT病灶数':>8}  {'检出数':>8}  {'检出率':>8}  {'漏检数':>8}")
-    for t in LESION_THRESHOLDS:
-        st = lesion_stats[t]
-        n, d = st["total"], st["detected"]
-        if n == 0:
-            continue
-        lines.append(f"  >= {t:>4} 体素  {n:>8}  {d:>8}  {d/n*100:>7.1f}%  {n-d:>8}")
-    lines.append(f"  注：>=100体素为临床有意义阈值，>=0含标注噪声碎片")
+        # 连通域阈值分析：遍历预测连通域
+        is_no_tumor = (r.get("gt_tumor", 0) == 0)
+        labeled_pred, n_pred_cc = _cc_label(pred_mask)
+        for i in range(1, n_pred_cc + 1):
+            cc_mask = labeled_pred == i
+            vol = int(cc_mask.sum())
+            overlap = int((cc_mask & gt_mask).sum())
+            if is_no_tumor:
+                fp_cc_info.append({"case": case, "vol": vol})
+            elif overlap > 0:
+                tp_cc_sizes.append(vol)
+
+    lines.append("连通域阈值分析（后处理参考）")
+    # Q1
+    fp_cases_with_cc = sorted({d["case"] for d in fp_cc_info})
+    lines.append(f"  Q1 无肿瘤 case 被预测出连通域："
+                 f" {len(fp_cases_with_cc)}/{len(no_tumor)} cases")
+    if fp_cases_with_cc:
+        for fc in fp_cases_with_cc:
+            vols = sorted([d["vol"] for d in fp_cc_info if d["case"] == fc])
+            lines.append(f"    {fc}: {len(vols)} 个假CC，体素数={vols}")
+    else:
+        lines.append("    所有无肿瘤 case 预测均为空 ✓")
+    # Q2
+    if fp_cc_info:
+        all_fp_vols = sorted([d["vol"] for d in fp_cc_info])
+        lines.append(f"  Q2 假连通域大小: min={min(all_fp_vols)}  max={max(all_fp_vols)}"
+                     f"  mean={np.mean(all_fp_vols):.0f}  列表={all_fp_vols}")
+    else:
+        lines.append("  Q2 无假连通域")
+    # Q3
+    if tp_cc_sizes:
+        lines.append(f"  Q3 真阳性CC最小体素数: {min(tp_cc_sizes)}"
+                     f"  (共 {len(tp_cc_sizes)} 个TP CC，"
+                     f"min={min(tp_cc_sizes)} max={max(tp_cc_sizes)})")
+        lines.append(f"     → 后处理阈值上限 < {min(tp_cc_sizes)} 体素（超过将漏掉最小真实肿瘤）")
+    else:
+        lines.append("  Q3 未找到真阳性 CC")
     lines.append("")
 
     lines.append("Tumor Dice 按大小分组 (有肿瘤 case)")

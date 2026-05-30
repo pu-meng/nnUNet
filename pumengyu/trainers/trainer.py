@@ -6,9 +6,10 @@ from pumengyu.mixins import (
     CopyPasteMixin, DifficultyCopyPasteMixin,
     SmallTumorOversampleMixin,
     SizeStratifiedOversampleMixin,
-    UnifiedFocalLossMixin, AutoReportMixin, AutoInternalTestMixin,
+    UnifiedFocalLossMixin, TverskyLossMixin, AutoReportMixin, AutoInternalTestMixin,
     NoTumorFPPenaltyMixin,
     ExternalNoTumorMixin,
+    TumorOnlyTrainMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 
@@ -64,7 +65,7 @@ class nnUNetTrainer_CopyPaste_Diff(
 # 当前主线                                                            #
 # ------------------------------------------------------------------ #
 
-class nnUNetTrainer_Ext25(ExternalNoTumorMixin, AutoReportMixin, nnUNetTrainer):
+class nnUNetTrainer_Ext25(AutoInternalTestMixin, ExternalNoTumorMixin, AutoReportMixin, nnUNetTrainer):
     """
     Baseline + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20），其余与 nnUNetTrainer 完全一致。
 
@@ -76,7 +77,7 @@ class nnUNetTrainer_Ext25(ExternalNoTumorMixin, AutoReportMixin, nnUNetTrainer):
     """
 
 
-class nnUNetTrainer_SizeOversample(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+class nnUNetTrainer_SizeOversample(AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
     """
     大小分层重复过采样（无 CopyPaste）。
 
@@ -94,7 +95,7 @@ class nnUNetTrainer_SizeOversample(SizeStratifiedOversampleMixin, AutoReportMixi
 
 
 class nnUNetTrainer_SizeOversample_UFL(
-    SizeStratifiedOversampleMixin, UnifiedFocalLossMixin, AutoReportMixin, nnUNetTrainer
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, UnifiedFocalLossMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
     大小分层重复过采样 + UFL（delta=0.6）。
@@ -105,7 +106,7 @@ class nnUNetTrainer_SizeOversample_UFL(
     """
 
 
-class nnUNetTrainer_SizeOversampleV2(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+class nnUNetTrainer_SizeOversampleV2(AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
     """
     大小分层重复过采样 V2（加强版倍数）。
 
@@ -124,8 +125,30 @@ class nnUNetTrainer_SizeOversampleV2(SizeStratifiedOversampleMixin, AutoReportMi
     SSO_NO_TUMOR_REPEAT: int = 6
 
 
+class nnUNetTrainer_SizeOversampleV3(AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    大小分层重复过采样 V3（全尺寸均衡版）。
+
+    在 V2 基础上新增中等肿瘤过采样，同时进一步提升极小/小的曝光频率；
+    极大和无肿瘤保持与 V2 一致，不引入额外变量：
+        极小（≤P20）  → 8× 重复
+        小（P20~P45） → 6× 重复
+        中（P45~P90） → 3× 重复（V2 为 1×，新增）
+        极大（>P90）  → 3×（与 V2 相同）
+        无肿瘤 case   → 6×（与 V2 相同）
+
+    消融目标：验证"全尺寸均衡过采样"能否在保持 V2 Precision 增益的同时恢复小肿瘤召回率。
+    结果目录：nnUNetTrainer_SizeOversampleV3__nnUNetPlans__3d_fullres/
+    """
+    SSO_TINY_REPEAT:     int = 8
+    SSO_SMALL_REPEAT:    int = 6
+    SSO_MID_REPEAT:      int = 3
+    SSO_HUGE_REPEAT:     int = 3
+    SSO_NO_TUMOR_REPEAT: int = 6
+
+
 class nnUNetTrainer_SizeOversampleV2_NTFP(
-    NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+    AutoInternalTestMixin, NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
     大小分层重复过采样 V2 + 无肿瘤专项误报惩罚（NoTumorFPPenalty）。
@@ -144,7 +167,7 @@ class nnUNetTrainer_SizeOversampleV2_NTFP(
 
 
 class nnUNetTrainer_SizeOversampleV2_Ext25(
-    ExternalNoTumorMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+    AutoInternalTestMixin, ExternalNoTumorMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
     SizeOversampleV2 + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20）。
@@ -163,7 +186,7 @@ class nnUNetTrainer_SizeOversampleV2_Ext25(
 
 
 class nnUNetTrainer_SizeOversampleV2_NTFP_Ext25(
-    ExternalNoTumorMixin, NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+    AutoInternalTestMixin, ExternalNoTumorMixin, NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
     SizeOversampleV2_NTFP + 外部无肿瘤 25 case（IRCADb×5 + CHAOS CT×20）。
@@ -173,6 +196,48 @@ class nnUNetTrainer_SizeOversampleV2_NTFP_Ext25(
     SSO_TINY_REPEAT:     int = 6
     SSO_SMALL_REPEAT:    int = 5
     SSO_NO_TUMOR_REPEAT: int = 6
+
+
+class nnUNetTrainer_SizeOversampleV2_Tversky(
+    AutoInternalTestMixin, TverskyLossMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    大小分层重复过采样 V2 + AsymmetricFocalTverskyLoss（delta=0.7, gamma=0.75）。
+
+    数据层：极小×6, 小×5, 无肿瘤×6（与 SizeOversampleV2 完全一致）。
+    Loss 层：在 CE+Dice 基础上叠加 AsymmetricFocalTverskyLoss（compound-loss 库），
+             FN 权重 0.7，FP 权重 0.3，focal 调制前景 easy 样本，专项提升小肿瘤召回率。
+
+    消融目标：隔离"换损失函数"对召回的贡献，与 SizeOversampleV2 形成单一变量对照。
+
+    结果目录：nnUNetTrainer_SizeOversampleV2_Tversky__nnUNetPlans__3d_fullres/
+    """
+    SSO_TINY_REPEAT:     int = 6
+    SSO_SMALL_REPEAT:    int = 5
+    SSO_NO_TUMOR_REPEAT: int = 6
+
+
+# ------------------------------------------------------------------ #
+# 两阶段 FP 抑制                                                      #
+# ------------------------------------------------------------------ #
+
+class Tr_Stage1_TumorOnly(AutoInternalTestMixin, TumorOnlyTrainMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    两阶段 FP 抑制 — Stage1。
+
+    训练集只保留有肿瘤 case（118/131），无肿瘤 case 从训练集剔除。
+    目的：故意让模型从未见过"应全黑"的输入，推理时对无肿瘤 case 大量误报，
+    产生 FP 概率图（--save_probabilities）供 Stage2 作为第 2/3 输入通道。
+
+    推理命令（全 131 case，保存概率图）：
+      CUDA_VISIBLE_DEVICES=0 nnUNetv2_predict \\
+        -i .../imagesTr \\
+        -o .../Tr_Stage1_TumorOnly.../fold_0/stage1_softmax \\
+        -d Dataset003_Liver -c 3d_fullres -tr Tr_Stage1_TumorOnly -f 0 \\
+        --save_probabilities
+
+    结果目录：Tr_Stage1_TumorOnly__nnUNetPlans__3d_fullres/
+    """
 
 
 # ------------------------------------------------------------------ #
