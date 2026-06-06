@@ -11,8 +11,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-matplotlib.rcParams["font.family"] = ["Noto Sans CJK JP", "SimHei", "DejaVu Sans"]
-matplotlib.rcParams["axes.unicode_minus"] = False
 import matplotlib.patches as mpatches
 
 

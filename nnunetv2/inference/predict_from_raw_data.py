@@ -273,12 +273,14 @@ class nnUNetPredictor(object):
         if len(list_of_lists_or_source_folder) == 0:
             return
 
+        total_cases = len(list_of_lists_or_source_folder)
         data_iterator = self._internal_get_data_iterator_from_lists_of_filenames(list_of_lists_or_source_folder,
                                                                                  seg_from_prev_stage_files,
                                                                                  output_filename_truncated,
                                                                                  num_processes_preprocessing)
 
-        return self.predict_from_data_iterator(data_iterator, save_probabilities, num_processes_segmentation_export)
+        return self.predict_from_data_iterator(data_iterator, save_probabilities, num_processes_segmentation_export,
+                                               total_cases=total_cases)
 
     def _internal_get_data_iterator_from_lists_of_filenames(self,
                                                             input_list_of_lists: List[List[str]],
@@ -363,7 +365,8 @@ class nnUNetPredictor(object):
     def predict_from_data_iterator(self,
                                    data_iterator,
                                    save_probabilities: bool = False,
-                                   num_processes_segmentation_export: int = default_num_processes):
+                                   num_processes_segmentation_export: int = default_num_processes,
+                                   total_cases: int = None):
         """
         each element returned by data_iterator must be a dict with 'data', 'ofile' and 'data_properties' keys!
         If 'ofile' is None, the result will be returned instead of written to a file
@@ -371,7 +374,8 @@ class nnUNetPredictor(object):
         with multiprocessing.get_context("spawn").Pool(num_processes_segmentation_export) as export_pool:
             worker_list = [i for i in export_pool._pool]
             r = []
-            for preprocessed in data_iterator:
+            total_str = str(total_cases) if total_cases is not None else '?'
+            for case_idx, preprocessed in enumerate(data_iterator):
                 data = preprocessed['data']
                 if isinstance(data, str):
                     delfile = data
@@ -380,11 +384,9 @@ class nnUNetPredictor(object):
 
                 ofile = preprocessed['ofile']
                 if ofile is not None:
-                    print(f'\nPredicting {os.path.basename(ofile)}:')
+                    print(f'[{case_idx + 1}/{total_str}] Predicting {os.path.basename(ofile)}')
                 else:
-                    print(f'\nPredicting image of shape {data.shape}:')
-
-                print(f'perform_everything_on_device: {self.perform_everything_on_device}')
+                    print(f'[{case_idx + 1}/{total_str}] Predicting image of shape {data.shape}')
 
                 properties = preprocessed['data_properties']
 
@@ -399,7 +401,6 @@ class nnUNetPredictor(object):
                 prediction = self.predict_logits_from_preprocessed_data(data).cpu().detach().numpy()
 
                 if ofile is not None:
-                    print('sending off prediction to background worker for resampling and export')
                     r.append(
                         export_pool.apply_async(
                             export_prediction_from_logits,
@@ -408,7 +409,6 @@ class nnUNetPredictor(object):
                         )
                     )
                 else:
-                    print('sending off prediction to background worker for resampling')
                     r.append(
                         export_pool.apply_async(
                             convert_predicted_logits_to_segmentation_with_correct_shape,
@@ -418,10 +418,6 @@ class nnUNetPredictor(object):
                              save_probabilities)
                         )
                     )
-                if ofile is not None:
-                    print(f'done with {os.path.basename(ofile)}')
-                else:
-                    print(f'\nDone with image of shape {data.shape}:')
 
             print("GPU prediction completed. Waiting for remaining segmentation exports to finish...")
             ret = [None] * len(r)
@@ -632,7 +628,7 @@ class nnUNetPredictor(object):
             if not self.allow_tqdm and self.verbose:
                 print(f'running prediction: {len(slicers)} steps')
 
-            with tqdm(desc=None, total=len(slicers), disable=not self.allow_tqdm) as pbar:
+            with tqdm(desc=None, total=len(slicers), disable=True) as pbar:
                 while True:
                     item = queue.get()
                     if item == 'end':

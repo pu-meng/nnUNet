@@ -10,6 +10,8 @@ from pumengyu.mixins import (
     NoTumorFPPenaltyMixin,
     ExternalNoTumorMixin,
     TumorOnlyTrainMixin,
+    NoMirrorMixin,
+    Stage2FPSupMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 
@@ -147,6 +149,24 @@ class nnUNetTrainer_SizeOversampleV3(AutoInternalTestMixin, SizeStratifiedOversa
     SSO_NO_TUMOR_REPEAT: int = 6
 
 
+class nnUNetTrainer_SizeOversampleV3_NoMirror(
+    AutoInternalTestMixin, NoMirrorMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    SizeOversampleV3 + 关闭镜像增强。
+
+    消融目标：验证"全尺寸均衡过采样 + 禁用镜像"叠加是否进一步降低无肿瘤误报率。
+    SizeOversampleV3 过采样倍数完全一致，唯一变量是 NoMirrorMixin。
+
+    结果目录：nnUNetTrainer_SizeOversampleV3_NoMirror__nnUNetPlans__3d_fullres/
+    """
+    SSO_TINY_REPEAT:     int = 8
+    SSO_SMALL_REPEAT:    int = 6
+    SSO_MID_REPEAT:      int = 3
+    SSO_HUGE_REPEAT:     int = 3
+    SSO_NO_TUMOR_REPEAT: int = 6
+
+
 class nnUNetTrainer_SizeOversampleV2_NTFP(
     AutoInternalTestMixin, NoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
@@ -218,8 +238,50 @@ class nnUNetTrainer_SizeOversampleV2_Tversky(
 
 
 # ------------------------------------------------------------------ #
+# 数据增强消融                                                         #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_NoMirror(AutoInternalTestMixin, NoMirrorMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    关闭所有镜像增强的消融实验。
+
+    动机：肝脏是右侧不对称器官，nnUNet 默认的左右/前后/上下镜像
+    会产生"肝脏在左侧"等解剖上不存在的假图像，可能引入训练噪音。
+
+    消融目标：与 Baseline 单一变量对照，观察去除镜像是否
+    改善无肿瘤 case 误报率和小肿瘤 Dice。
+
+    结果目录：nnUNetTrainer_NoMirror__nnUNetPlans__3d_fullres/
+    """
+
+
+# ------------------------------------------------------------------ #
 # 两阶段 FP 抑制                                                      #
 # ------------------------------------------------------------------ #
+
+class Tr_Stage2_FPSup(AutoInternalTestMixin, Stage2FPSupMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    两阶段 FP 抑制 — Stage2。
+
+    输入：3 通道（CT + Stage1 肿瘤概率图 + Stage1 二值图）
+    Loss：MSE + binary BCE（肿瘤通道）
+    采样：无肿瘤 case 过采样 3×
+
+    前置条件：Stage1 已对全部 imagesTr 推理并保存概率图（--save_probabilities），
+    文件位于 S2_STAGE1_SOFTMAX_DIR（首次训练时自动 resample 并缓存到 s2feat/）。
+
+    训练命令：
+        RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \\
+        nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr Tr_Stage2_FPSup
+
+    结果目录：Tr_Stage2_FPSup__nnUNetPlans__3d_fullres/
+    """
+
+    def __init__(self, plans, configuration, fold, dataset_json, device=torch.device('cuda')):
+        super().__init__(plans, configuration, fold, dataset_json, device)
+        self.num_epochs = 400               # Stage1热启动，400 epoch ≈ 21h（利用长时间窗口）
+        self.num_iterations_per_epoch = 150
+
 
 class Tr_Stage1_TumorOnly(AutoInternalTestMixin, TumorOnlyTrainMixin, AutoReportMixin, nnUNetTrainer):
     """

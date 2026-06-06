@@ -93,3 +93,31 @@ CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 4 -tr nnUNetTrainer_SizeOvers
 
 
  nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_SizeOversampleV3 -num_gpus 2
+
+
+RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \
+  nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_NoMirror
+
+  RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \
+
+
+CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage1_TumorOnly 
+
+
+
+  nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage2_FPSup -num_gpus 2
+
+
+  RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \
+  
+  CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_SizeOversampleV3_NoMirror --c
+
+
+
+
+
+  
+
+CUDA_VISIBLE_DEVICES=1 \
+nnUNet_n_proc_DA=6 \
+nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage2_FPSup 

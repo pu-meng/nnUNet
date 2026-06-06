@@ -82,6 +82,141 @@ V2=/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver
 
 ---
 
+### 2026-06-04
+
+**本次做了什么**
+
+1. `Tr_Stage2_FPSup` 500 epoch 训练完成（26.4h），验证集结果（n=13）：
+
+   | 指标 | Stage1 (验证集) | Stage2 (验证集) | 说明 |
+   |------|:--------------:|:--------------:|------|
+   | 肝脏 Dice | 0.9464 | **0.1148** | ⚠️ 异常低 |
+   | 肿瘤 Dice | 0.6454 | 0.6401 | 几乎无提升 |
+   | Overall | 0.7959 | 0.3775 | Stage2 被肝脏拖垮 |
+
+2. **问题根因分析**：Stage2 的 `_Stage2LossWrapper` 只优化肿瘤通道（MSE+BCE），肝脏通道从未被 Loss 约束，导致肝脏 Dice=0.11（接近随机）。而肝脏分割对肿瘤有强解剖约束（肿瘤必须在肝脏内），网络连肝脏都不认识，无法通过上下文区分真假肿瘤，Stage2 效果与 Stage1 持平。
+
+3. **已修复**（`pumengyu/mixins.py`）：
+   - `Stage2FPSupMixin._build_loss()` 改为调用 `super()._build_loss()`（标准 Dice+CE，肝脏+肿瘤同时优化）
+   - 删去 `_Stage2LossWrapper` 的使用（类定义保留备查）
+
+4. **加速优化**（`pumengyu/mixins.py` + `pumengyu/trainers/trainer.py`）：
+   - 新增 `Stage2FPSupMixin._load_stage1_weights()`：从 Stage1 `checkpoint_final.pth` 热启动，第一层 conv 从 1 通道扩展到 3 通道（新 2 通道初始化为 0），网络跳过重新学肝脏/肿瘤的阶段
+   - `Tr_Stage2_FPSup.num_epochs` 从 500 → **250**（热启动后 250 epoch 预计足够，节省约 13h）
+
+5. **DDP 双卡**：第二块 4090D 空闲，可用双卡训练进一步 ~2x 加速（见下次继续命令）
+
+**停在哪里**
+
+Stage2 v1（Loss 有误）已训完，结果不理想。代码已修复，等待重新训练。
+
+**下次继续**
+
+1. 从头重训 Stage2（修复版，热启动 Stage1 权重，250 epoch）：
+   ```bash
+   # 单卡
+   CUDA_VISIBLE_DEVICES=0 nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr Tr_Stage2_FPSup
+
+   # 双卡 DDP（~2x 加速，推荐）
+   CUDA_VISIBLE_DEVICES=0,1 nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr Tr_Stage2_FPSup
+   ```
+2. 观察训练日志开头，确认两行日志正确输出：
+   - `[Stage2Init] 扩展 ...: [32, 1, 3, 3, 3] → [32, 3, 3, 3, 3]`
+   - `[Stage2FPSup] Loss = Dice+CE (liver+tumor，与 nnUNetTrainer 一致)`
+3. 训练完成后对比验证集：肝脏 Dice 应回升到 0.90+，肿瘤 Dice 应超过 Stage1 (0.6454)，无肿瘤误报率目标 0%
+
+---
+
+### 2026-06-03
+
+**本次做了什么**
+
+1. `SizeOversampleV3_NoMirror` 训练完成，收集并对比了所有对照实验测试集结果（n=26）：
+
+   | Trainer | 肝脏Dice | 肿瘤Dice | Overall | 无肿瘤误报率 |
+   |---------|:--------:|:--------:|:-------:|:-----------:|
+   | Baseline | 0.9340 | 0.6542 | 0.7941 | 100% (3/3) |
+   | NoMirror | 0.9581 | 0.6685 | 0.8133 | 66.7% |
+   | SizeOversampleV2 | 0.9516 | **0.6858** | **0.8187** | 66.7% |
+   | SizeOversampleV3 | 0.9513 | 0.6774 | 0.8143 | 66.7% |
+   | SizeOversampleV3_NoMirror | **0.9591** | 0.6649 | 0.8120 | 66.7% |
+   | Stage1_TumorOnly | 0.9502 | 0.6592 | 0.8047 | 100%（符合预期）|
+
+   **关键结论**：NoMirror 去掉镜像后肝脏 Dice 大幅回升（0.9340→0.9591）；**SizeOversampleV2 综合最优**（Overall 0.8187，Tumor Dice 0.6858），V3 + NoMirror 组合并未带来额外提升。论文对比 baseline 仍选 SizeOversampleV2。
+
+2. `Tr_Stage2_FPSup` 已在运行，epoch 45 时中断（log 文件：`training_log_2026_6_2_23_53_59.txt`，368 行），有 `checkpoint_best.pth`，需 `--c` 续训。
+
+3. 确认 Stage2 续训命令正确（`nnUNet_results` 已全局指向 `results_v2`，无需额外设 `RESULTS_FOLDER`）：
+   ```bash
+   CUDA_VISIBLE_DEVICES=1 \
+   nnUNet_n_proc_DA=6 \
+   nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage2_FPSup --c
+   ```
+
+4. 规划了 log 文件清理方案（待执行）：删除 0 行 + 短暂中断日志（SizeOversampleV2/V3/Stage2 各1-2个），保留主训练 log。
+
+**停在哪里**
+
+Stage2 训练中断在 epoch 45，待 `--c` 续训完成。
+
+**下次继续**
+
+1. 确认 Stage2 训练完成（`checkpoint_final.pth` 存在）：
+   ```bash
+   ls /home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/Tr_Stage2_FPSup__nnUNetPlans__3d_fullres/fold_0/
+   ```
+2. Stage2 推理 + 评测（`AutoInternalTestMixin` 应自动触发，若没有则手动跑 report）
+3. 与 SizeOversampleV2（Overall 0.8187, FP 误报率 66.7%）对比 Stage2 效果
+
+---
+
+### 2026-05-31
+
+**本次做了什么**
+
+1. 确认 results_v2 中两个中止实验的状态：
+   - `nnUNetTrainer_NoMirror`：epoch 0 前中止，无 checkpoint，需从头训
+   - `Tr_Stage1_TumorOnly`：epoch 680 中止，有 `checkpoint_latest.pth`，续训完成（✅）
+
+2. 系统分析 4 个已完成实验的测试集结果（n=26）：
+
+   | Trainer | 肿瘤Dice | Overall | 无肿瘤误报率 |
+   |---------|:--------:|:-------:|:-----------:|
+   | Baseline | 0.6542 | 0.7941 | 100% |
+   | SizeOversampleV2 | 0.6858 | **0.8187** | 66.7% |
+   | SizeOversampleV3 | 0.6774 | 0.8143 | 66.7% |
+   | Stage1_TumorOnly | 0.6592 | 0.8047 | 100%（符合预期） |
+
+3. 全面梳理并更新了两个文档：
+   - `pumengyu/notes/md/实验配置记录.md`：补全 Mixin 速查表、所有未跑实验列表、测试集+验证集结果双表
+   - `pumengyu/notes/md/两阶段FP抑制方案.md`：Stage1 标记已完成，步骤进度表更新，Step 2 命令写好
+
+4. 写了 Stage1 推理脚本：`pumengyu/notes/sh/stage1_predict.sh`
+
+5. 开始执行 Stage1 全量推理（`--save_probabilities`），运行到一半中止后重启
+
+**停在哪里**
+
+Stage1 推理（`stage1_predict.sh`）**正在运行**，对 131 个 case 保存 softmax 概率图到 `stage1_softmax/`。
+
+**下次继续**
+
+1. 确认推理完成（131 个 `.npz` + `.nii.gz`）：
+   ```bash
+   ls /home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/Tr_Stage1_TumorOnly__nnUNetPlans__3d_fullres/fold_0/stage1_softmax/ | wc -l
+   # 期望：262（每 case 1 个 .nii.gz + 1 个 .npz）
+   ```
+2. 启动 NoMirror 训练（可与 Stage2 实现并行）：
+   ```bash
+   RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 nnUNetv2_train 3 3d_fullres 0 -tr nnUNetTrainer_NoMirror
+   ```
+3. 实现 `Tr_Stage2_FPSup`（`pumengyu/trainers/trainer.py` + `pumengyu/mixins.py`）：
+   - 3 通道输入（CT + Stage1 prob + Stage1 binary）
+   - Loss：MSE + CE
+   - 无肿瘤 case 过采样 3×
+
+---
+
 ### 2026-05-30
 
 **本次做了什么**

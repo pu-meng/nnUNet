@@ -21,8 +21,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-matplotlib.rcParams["font.family"] = ["Noto Sans CJK JP", "SimHei", "DejaVu Sans"]
-matplotlib.rcParams["axes.unicode_minus"] = False
 import matplotlib.ticker as mticker
 
 from pumengyu.analysis.image_features import extract_dataset
@@ -404,7 +402,8 @@ def build_text_report(results: dict, tag: str) -> str:
 
 # ──────────────────────────── 主入口 ─────────────────────────────────
 
-def run(dataset: str, tag: str, tumor_label: int = 2) -> None:
+def run(dataset: str, tag: str, tumor_label: int = 2,
+        from_cache: bool = False) -> None:
     gt_dir  = WORKSPACE / "preprocessed" / dataset / "gt_segmentations"
     img_dir = WORKSPACE / "raw" / dataset / "imagesTr"
 
@@ -414,8 +413,17 @@ def run(dataset: str, tag: str, tumor_label: int = 2) -> None:
     print(f"\n数据集画像分析：{dataset}")
     print(f"输出目录：{out_dir}\n")
 
-    # 提取特征（最耗时，约数分钟）
-    results = extract_dataset(gt_dir, img_dir, tumor_label=tumor_label)
+    cache_path = out_dir / "features_cache.json"
+    if from_cache and cache_path.exists():
+        print(f"从缓存加载特征：{cache_path}")
+        raw = json.load(open(cache_path))
+        results = {k: v for k, v in raw.items()}
+    else:
+        # 提取特征（最耗时，约数分钟）
+        results = extract_dataset(gt_dir, img_dir, tumor_label=tumor_label)
+        json.dump({k: v for k, v in results.items()},
+                  open(cache_path, "w"), default=float)
+        print(f"特征缓存已保存：{cache_path}")
 
     # 整理数据
     cc_sizes, cc_counts = [], []
@@ -429,11 +437,6 @@ def run(dataset: str, tag: str, tumor_label: int = 2) -> None:
             tumor_hu_list.append(cc["tumor_hu_mean"])
             liver_hu_list.append(cc["liver_hu_mean"])
             contrast_list.append(cc["contrast"])
-
-    # 保存 JSON（供后续 correlate.py 使用）
-    cache = out_dir / "features_cache.json"
-    json.dump({k: v for k, v in results.items()}, open(cache, "w"), default=float)
-    print(f"特征缓存：{cache}")
 
     # GT CSV（per-CC + per-case，GT 来源）
     print("\n保存 GT CSV...")
@@ -460,8 +463,10 @@ def main():
     p.add_argument("--dataset",     default="Dataset003_Liver")
     p.add_argument("--output_tag",  default="lits", help="输出目录后缀")
     p.add_argument("--tumor_label", default=2, type=int)
+    p.add_argument("--from_cache",  action="store_true",
+                   help="从已有 features_cache.json 加载，跳过 CT 读取（秒级完成）")
     args = p.parse_args()
-    run(args.dataset, args.output_tag, args.tumor_label)
+    run(args.dataset, args.output_tag, args.tumor_label, args.from_cache)
 
 
 if __name__ == "__main__":

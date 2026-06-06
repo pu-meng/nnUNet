@@ -1203,6 +1203,29 @@ class ExternalNoTumorMixin:
 
 
 # ------------------------------------------------------------------ #
+# 数据增强控制                                                         #
+# ------------------------------------------------------------------ #
+
+class NoMirrorMixin:
+    """
+    关闭所有轴的镜像增强。
+
+    动机：肝脏是右侧不对称器官，左右镜像会生成"肝脏在左侧"的假图像，
+    对模型来说是噪音而非有效增强。关掉后观察是否改善分割精度。
+
+    实现：覆盖 configure_rotation_dummyDA_mirroring_and_inital_patch_size
+    的返回值，将 mirror_axes 置为空 tuple，同时清空推理时的镜像轴。
+    """
+
+    def configure_rotation_dummyDA_mirroring_and_inital_patch_size(self):
+        rotation_for_DA, do_dummy_2d, initial_patch_size, _ = \
+            super().configure_rotation_dummyDA_mirroring_and_inital_patch_size()  # type: ignore
+        self.inference_allowed_mirroring_axes = None
+        self.print_to_log_file("[NoMirrorMixin] 已关闭所有镜像增强（肝脏不对称）")  # type: ignore
+        return rotation_for_DA, do_dummy_2d, initial_patch_size, None
+
+
+# ------------------------------------------------------------------ #
 # 两阶段 FP 抑制 — Stage1                                             #
 # ------------------------------------------------------------------ #
 
@@ -1238,3 +1261,273 @@ class TumorOnlyTrainMixin:
             f"（移除 {removed} 个无肿瘤 case，验证集不受影响）"
         )
         return dataset_tr, dataset_val
+
+
+# ------------------------------------------------------------------ #
+# 两阶段 FP 抑制 — Stage2                                             #
+# ------------------------------------------------------------------ #
+
+from nnunetv2.training.dataloading.nnunet_dataset import nnUNetDatasetBlosc2 as _nnUNetDatasetBlosc2
+
+class Stage2_nnUNetDatasetBlosc2(_nnUNetDatasetBlosc2):
+    """静态定义在模块顶层，DDP spawn worker 可通过 pickle lookup 找到。
+    从 stage1_prob_prep/ 读取已对齐到 preprocessed 空间的 float16 b2nd，
+    load_case 无需裁剪+插值，直接使用。"""
+    def load_case(self, identifier):
+        data, seg, seg_prev, properties = super().load_case(identifier)
+        data_np = np.asarray(data[:]).astype(np.float32)   # (1,Z,Y,X) preprocessed空间
+        target_shape = tuple(data_np.shape[1:])
+
+        # stage1_prob_prep/ 存的已经是 preprocessed 空间，无需插值
+        prob_path = _os.path.join(self.source_folder, 'stage1_prob_prep', identifier + '.b2nd')
+        if _os.path.exists(prob_path):
+            prob_prep = np.array(blosc2.open(prob_path, mode='r')[0]).astype(np.float32)  # (Z,Y,X)
+        else:
+            prob_prep = np.zeros(target_shape, dtype=np.float32)
+
+        bin_prep = (prob_prep > 0.5).astype(np.float32)
+        feat = np.stack([prob_prep, bin_prep], axis=0)      # (2,Z,Y,X)
+        return np.concatenate([data_np, feat], axis=0), seg, seg_prev, properties
+
+
+class _Stage2LossWrapper(torch.nn.Module):
+    """
+    MSE + binary BCE on tumor channel.
+
+    公式（方案文档 §四.Step4）：
+        Loss = (1/N) Σ [(g - p)² - g·log(p) - (1-g)·log(1-p)]
+
+    被 DeepSupervisionWrapper 调用时，每次收到单个分辨率层的
+    (logits, target) tensor，不是 list。
+    """
+
+    def __init__(self, tumor_cls_idx: int):
+        super().__init__()
+        self.tumor_idx = tumor_cls_idx
+
+    def forward(self, net_output, target):
+        logits = net_output[0] if isinstance(net_output, list) else net_output  # (B,C,Z,Y,X)
+        tgt    = target[0]    if isinstance(target,     list) else target        # (B,1,Z,Y,X)
+
+        p = torch.softmax(logits.float(), dim=1)[:, self.tumor_idx]              # (B,Z,Y,X)
+        g = (tgt[:, 0].long() == self.tumor_idx).float()                         # (B,Z,Y,X)
+
+        mse = ((g - p) ** 2).mean()
+        eps = 1e-6
+        bce = -(g * torch.log(p + eps) + (1 - g) * torch.log(1 - p + eps)).mean()
+        return mse + bce
+
+
+class Stage2FPSupMixin:
+    """
+    Stage2 FP 抑制 Mixin（对应方案文档 §四.Step4）。
+
+    功能：
+      1. 在 initialize() 中把 self.dataset_class 替换为子类，
+         子类的 load_case 多返回 2 个 Stage1 通道（prob + binary），
+         使 get_dataloaders 和 perform_actual_validation 自动拿到 3 通道输入。
+      2. 在 on_train_start() 中将 Stage1 softmax resample 到 preprocessed
+         空间并缓存，后续训练直接读缓存（只做一次）。
+      3. 覆盖 get_tr_and_val_datasets 对无肿瘤 case 过采样 3×。
+      4. 覆盖 build_network_architecture：输入通道 +2。
+      5. 覆盖 _build_loss：MSE + BCE（含 DeepSupervisionWrapper）。
+
+    类变量（子类可覆盖）：
+        S2_STAGE1_SOFTMAX_DIR   Stage1 softmax .npz 文件所在目录
+        S2_NO_TUMOR_REPEAT      无肿瘤 case 过采样倍数（默认 3）
+    """
+
+    S2_STAGE1_SOFTMAX_DIR: str = (
+        '/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/'
+        'Tr_Stage1_TumorOnly__nnUNetPlans__3d_fullres/fold_0/stage1_softmax'
+    )
+    S2_NO_TUMOR_REPEAT: int = 3
+
+    # ---------------------------------------------------------------- #
+    # dataset_class 替换                                                #
+    # ---------------------------------------------------------------- #
+
+    @property
+    def _stage1_prob_dir(self) -> str:
+        # stage1_prob_prep/ 存储已对齐到 preprocessed 空间的概率图（crop+resample 已完成）
+        return _os.path.join(self.preprocessed_dataset_folder, 'stage1_prob_prep')  # type: ignore
+
+    # Stage1 checkpoint 路径（子类可覆盖）
+    S2_STAGE1_CKPT: str = (
+        '/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/'
+        'Tr_Stage1_TumorOnly__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth'
+    )
+
+    def initialize(self):
+        super().initialize()  # type: ignore
+        self._install_stage2_dataset_class()
+        self._load_stage1_weights()
+
+    def _load_stage1_weights(self):
+        """用 Stage1 权重热启动，第一层 conv 扩展到 3 通道（新 2 通道初始化为 0）。
+        热启动让网络跳过重新学肝脏/肿瘤的过程，只需学习利用新的 2 个辅助通道。"""
+        import torch
+        ckpt_path = self.S2_STAGE1_CKPT  # type: ignore
+        if not _os.path.exists(ckpt_path):
+            self.print_to_log_file(  # type: ignore
+                f'[Stage2Init] Stage1 checkpoint 不存在: {ckpt_path}，随机初始化'
+            )
+            return
+
+        checkpoint  = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+        state_dict  = checkpoint['network_weights']
+
+        # 找第一个 5D conv weight（3D卷积），扩展输入通道 1→3
+        for k, v in state_dict.items():
+            if v.ndim == 5 and 'weight' in k:
+                new_w = torch.zeros(v.shape[0], 3, *v.shape[2:], dtype=v.dtype)
+                new_w[:, :1] = v      # 原 CT 通道权重保留
+                # 新 2 个通道（Stage1 prob/binary）初始化为 0，让网络自由学习如何使用
+                state_dict[k] = new_w
+                self.print_to_log_file(  # type: ignore
+                    f'[Stage2Init] 扩展 {k}: {list(v.shape)} → {list(new_w.shape)}'
+                )
+                break
+
+        net = self.network  # type: ignore
+        # DDP 场景下解包
+        mod = net.module if hasattr(net, 'module') else net
+        missing, unexpected = mod.load_state_dict(state_dict, strict=False)
+        self.print_to_log_file(  # type: ignore
+            f'[Stage2Init] 加载 Stage1 权重完成，missing={len(missing)}, unexpected={len(unexpected)}'
+        )
+
+    def _install_stage2_dataset_class(self):
+        import importlib
+        # 强制走 sys.modules 的规范版本，避免 nnUNet 搜索时双重导入产生两个不同 class 对象
+        mod = importlib.import_module('pumengyu.mixins')
+        self.dataset_class = mod.Stage2_nnUNetDatasetBlosc2  # type: ignore
+        self.print_to_log_file(  # type: ignore
+            '[Stage2FPSup] dataset_class → Stage2_nnUNetDatasetBlosc2'
+        )
+
+    # ---------------------------------------------------------------- #
+    # Stage1 特征预处理（一次性，缓存到 s2feat/）                       #
+    # ---------------------------------------------------------------- #
+
+    def on_train_start(self):
+        self._prepare_s2_features()
+        super().on_train_start()  # type: ignore
+
+    def _prepare_s2_features(self):
+        """将 Stage1 softmax 的肿瘤通道 crop+resample 到 preprocessed 空间，压缩为 float16 b2nd。
+
+        关键优化：crop+trilinear resample 在此一次性完成（而非在 load_case 每次调用时做）。
+        load_case 读取时直接拿到 preprocessed 空间数据，无需任何插值，大幅提升训练速度。
+        存储空间：preprocessed 空间（约 128×256×256），比原始 CT 空间（512×512×N）小数倍。
+        """
+        import torch.nn.functional as F
+        from batchgenerators.utilities.file_and_folder_operations import maybe_mkdir_p, load_pickle
+
+        prob_dir    = self._stage1_prob_dir
+        softmax_dir = self.S2_STAGE1_SOFTMAX_DIR
+        pre_folder  = self.preprocessed_dataset_folder  # type: ignore
+
+        maybe_mkdir_p(prob_dir)
+
+        if not _os.path.isdir(softmax_dir):
+            self.print_to_log_file(  # type: ignore
+                f'[Stage2Prep] softmax 目录不存在: {softmax_dir}，跳过预处理'
+            )
+            return
+
+        all_keys = sorted([f[:-4] for f in _os.listdir(softmax_dir) if f.endswith('.npz')])
+        n_skip = sum(1 for k in all_keys if _os.path.exists(_os.path.join(prob_dir, k + '.b2nd')))
+        self.print_to_log_file(  # type: ignore
+            f'[Stage2Prep] 预处理 {len(all_keys)} 个 case（crop+resample→preprocessed空间），'
+            f'已缓存 {n_skip} 个，待处理 {len(all_keys) - n_skip} 个'
+        )
+        n_new = 0
+        for i, key in enumerate(all_keys):
+            out_path = _os.path.join(prob_dir, key + '.b2nd')
+            if _os.path.exists(out_path):
+                continue
+
+            self.print_to_log_file(  # type: ignore
+                f'[Stage2Prep] [{i+1}/{len(all_keys)}] crop+resample {key} ...'
+            )
+
+            # 1. 读 Stage1 softmax（原始图像空间）
+            npz_path  = _os.path.join(softmax_dir, key + '.npz')
+            prob_orig = np.load(npz_path)['probabilities'][2].astype(np.float32)  # (Z_orig,Y_orig,X_orig)
+
+            # 2. 用 bbox crop 到 preprocessed 空间的起始范围
+            props     = load_pickle(_os.path.join(pre_folder, key + '.pkl'))
+            bb        = props['bbox_used_for_cropping']
+            prob_crop = prob_orig[bb[0][0]:bb[0][1], bb[1][0]:bb[1][1], bb[2][0]:bb[2][1]]
+
+            # 3. 读取 preprocessed 数据的目标 shape
+            pre_data     = blosc2.open(_os.path.join(pre_folder, key + '.b2nd'), mode='r')
+            target_shape = tuple(pre_data.shape[1:])  # (Z,Y,X)，去掉 channel 维
+
+            # 4. trilinear 插值对齐（一次性，不在 load_case 中每次重复）
+            prob_t    = torch.from_numpy(prob_crop)[None, None]   # (1,1,Z,Y,X)
+            prob_prep = F.interpolate(prob_t, size=target_shape, mode='trilinear',
+                                      align_corners=False)[0, 0].numpy()
+
+            # 5. 保存为 float16 b2nd，load_case 可直接读取无需插值
+            # 先写 .tmp，再 rename，保证不存在半成品（rename 在同一文件系统上是原子操作）
+            tmp_path = out_path + '.tmp'
+            blosc2.asarray(prob_prep[None].astype(np.float16), urlpath=tmp_path, mode='w')
+            _os.rename(tmp_path, out_path)
+            n_new += 1
+
+        self.print_to_log_file(  # type: ignore
+            f'[Stage2Prep] 完成: 新建 {n_new} 个，已缓存 {len(all_keys) - n_new} 个，目录: {prob_dir}'
+        )
+
+    # ---------------------------------------------------------------- #
+    # 无肿瘤过采样                                                      #
+    # ---------------------------------------------------------------- #
+
+    def get_tr_and_val_datasets(self):
+        dataset_tr, dataset_val = super().get_tr_and_val_datasets()  # type: ignore
+
+        tumor_cls = self.label_manager.foreground_labels[-1]  # type: ignore
+        folder    = self.preprocessed_dataset_folder           # type: ignore
+        extra, n_no_tumor = [], 0
+        for key in list(dataset_tr.identifiers):
+            props  = load_pickle(join(folder, key + '.pkl'))
+            n_locs = len(props.get('class_locations', {}).get(tumor_cls, []))
+            if n_locs == 0:
+                extra.extend([key] * (self.S2_NO_TUMOR_REPEAT - 1))
+                n_no_tumor += 1
+        n_before = len(dataset_tr.identifiers)
+        dataset_tr.identifiers.extend(extra)
+        self.print_to_log_file(  # type: ignore
+            f'[Stage2FPSup] 无肿瘤 {n_no_tumor} 个 × {self.S2_NO_TUMOR_REPEAT}，'
+            f'identifiers {n_before} → {len(dataset_tr.identifiers)}'
+        )
+        return dataset_tr, dataset_val
+
+    # ---------------------------------------------------------------- #
+    # 网络结构：输入通道 +2                                             #
+    # ---------------------------------------------------------------- #
+
+    @staticmethod
+    def build_network_architecture(plans_manager, configuration_manager,
+                                   num_input_channels, num_output_channels,
+                                   enable_deep_supervision=True):
+        from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+        return nnUNetTrainer.build_network_architecture(
+            plans_manager, configuration_manager,
+            num_input_channels + 2,
+            num_output_channels, enable_deep_supervision,
+        )
+
+    # ---------------------------------------------------------------- #
+    # Loss：标准 Dice+CE（肝脏 + 肿瘤同时优化）                        #
+    # 原设计只优化肿瘤通道（MSE+BCE），导致肝脏 Dice=0.11，             #
+    # 肝脏特征缺失使网络无法利用解剖约束区分真假肿瘤，效果与Stage1持平。#
+    # ---------------------------------------------------------------- #
+
+    def _build_loss(self):
+        self.print_to_log_file(  # type: ignore
+            '[Stage2FPSup] Loss = Dice+CE (liver+tumor，与 nnUNetTrainer 一致)'
+        )
+        return super()._build_loss()  # type: ignore
