@@ -121,3 +121,7 @@ CUDA_VISIBLE_DEVICES=1 nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage1_TumorOnly
 CUDA_VISIBLE_DEVICES=1 \
 nnUNet_n_proc_DA=6 \
 nnUNetv2_train 3 3d_fullres 0 -tr Tr_Stage2_FPSup 
+
+CUDA_VISIBLE_DEVICES=1 \
+RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \
+nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr Tr_Stage2_FPSup_v2

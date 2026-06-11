@@ -983,6 +983,131 @@ class BboxJitterMixin:
         return data
 
 
+# ── PNG 可视化工具函数（供 AutoReportMixin / AutoInternalTestMixin 共用）────────
+def _gen_viz_pngs_and_cleanup(
+    pred_folder,   # 存放预测 nii.gz 的目录（Path 或 str）
+    gt_dir,        # GT nii.gz 目录
+    img_dir,       # CT nii.gz 目录（*_0000.nii.gz）
+    out_viz_dir,   # PNG 输出根目录，每个 case 建子目录
+    min_voxel: int = 20,
+    delete_nii: bool = True,
+    log_fn=None,   # 可选：print_to_log_file 函数
+):
+    """
+    对 pred_folder 内每个 case 的预测 nii.gz 生成 TP/FP/FN 三色叠加 PNG，
+    按 case 分子目录保存到 out_viz_dir，然后删除 nii.gz（保留 summary.json 等其他文件）。
+    """
+    import shutil
+    import nibabel as nib
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    pred_folder  = Path(pred_folder)
+    out_viz_dir  = Path(out_viz_dir)
+    gt_dir       = Path(gt_dir)
+    img_dir      = Path(img_dir)
+
+    legend_entries = [
+        Patch(facecolor="green",     alpha=0.7,  label="TP"),
+        Patch(facecolor="red",       alpha=0.7,  label="FP"),
+        Patch(facecolor="royalblue", alpha=0.7,  label="FN"),
+    ]
+
+    def _log(msg):
+        if log_fn:
+            log_fn(msg, also_print_to_console=True)
+
+    total_png = 0
+    for pred_path in sorted(pred_folder.glob("*.nii.gz")):
+        case = pred_path.name.replace(".nii.gz", "")
+        ct_path = img_dir / f"{case}_0000.nii.gz"
+        gt_path = gt_dir  / f"{case}.nii.gz"
+
+        if not ct_path.exists() or not gt_path.exists():
+            _log(f"[VizCleanup] {case}: CT 或 GT 不存在，跳过")
+            continue
+
+        try:
+            ct   = nib.load(ct_path).get_fdata()
+            gt   = nib.load(gt_path).get_fdata()
+            pred = nib.load(pred_path).get_fdata()
+        except Exception as e:
+            _log(f"[VizCleanup] {case}: 加载失败 {e}，跳过")
+            continue
+
+        gt_tumor   = (gt   == 2).astype(np.uint8)
+        pred_tumor = (pred == 2).astype(np.uint8)
+
+        combined = np.zeros_like(gt, dtype=np.uint8)
+        combined[(gt_tumor == 1) & (pred_tumor == 1)] = 1  # TP
+        combined[(gt_tumor == 0) & (pred_tumor == 1)] = 2  # FP
+        combined[(gt_tumor == 1) & (pred_tumor == 0)] = 3  # FN
+
+        # 只保留有误差（FP 或 FN）的切片，TP-only 切片不需要看
+        error_per_slice = ((combined == 2) | (combined == 3)).sum(axis=(0, 1))
+        active_slices   = np.where(error_per_slice >= min_voxel)[0]
+
+        if len(active_slices) == 0:
+            _log(f"[VizCleanup] {case}: 无FP/FN切片（<{min_voxel}体素），跳过")
+            if delete_nii:
+                pred_path.unlink()
+            continue
+
+        case_dir = out_viz_dir / case
+        case_dir.mkdir(parents=True, exist_ok=True)
+
+        for z in active_slices:
+            ct_sl    = ct[:, :, z].T
+            tp_mask  = (combined[:, :, z] == 1).T
+            fp_mask  = (combined[:, :, z] == 2).T
+            fn_mask  = (combined[:, :, z] == 3).T
+            gt_vox   = int(tp_mask.sum()) + int(fn_mask.sum())  # GT = TP + FN
+
+            overlay_pred = np.zeros((*ct_sl.shape, 4), dtype=float)
+            overlay_pred[tp_mask] = [0,   1,   0, 0.55]
+            overlay_pred[fp_mask] = [1,   0,   0, 0.55]
+            overlay_pred[fn_mask] = [0, 0.4,   1, 0.65]
+
+            fig = plt.figure(figsize=(16, 6))
+            gs  = fig.add_gridspec(1, 3, width_ratios=[0.22, 1, 1], wspace=0.05)
+
+            ax_l = fig.add_subplot(gs[0])
+            ax_l.axis("off")
+            ax_l.legend(
+                handles=legend_entries, loc="center", fontsize=11,
+                frameon=True, framealpha=0.9, edgecolor="#888",
+                title="颜色说明", title_fontsize=12,
+                handlelength=2, handleheight=1.6, borderpad=1.2, labelspacing=1.2,
+            )
+
+            ax_ct = fig.add_subplot(gs[1])
+            ax_ct.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
+            ax_ct.set_title(f"原始CT  z={z}  GT={gt_vox}体素", fontsize=12)
+            ax_ct.axis("off")
+
+            ax_ov = fig.add_subplot(gs[2])
+            ax_ov.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
+            ax_ov.imshow(overlay_pred, origin="lower")
+            ax_ov.set_title(
+                f"预测结果  z={z}   TP={tp_mask.sum()}  FP={fp_mask.sum()}  FN={fn_mask.sum()}",
+                fontsize=12,
+            )
+            ax_ov.axis("off")
+
+            plt.savefig(case_dir / f"{case}_z{z}_full.png", dpi=150, bbox_inches="tight")
+            plt.close()
+            total_png += 1
+
+        _log(f"[VizCleanup] {case}: {len(active_slices)} 张 PNG → {case_dir}")
+        if delete_nii:
+            pred_path.unlink()
+
+    _log(f"[VizCleanup] 完成，共生成 {total_png} 张 PNG，输出: {out_viz_dir}")
+
+
 class AutoReportMixin:
     """
     验证结束后自动生成 report_custom.txt / report_custom.json。
@@ -990,19 +1115,7 @@ class AutoReportMixin:
     """
 
     def perform_actual_validation(self, save_probabilities: bool = False):
-        super().perform_actual_validation(save_probabilities)#type:ignore
-        try:
-
-            dataset_name = self.plans_manager.dataset_name#type:ignore
-            fold_dir = Path(self.output_folder)#type:ignore
-            gt_dir   = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
-            img_dir  = Path(nnUNet_raw)           / dataset_name / "imagesTr"
-
-            self.print_to_log_file(f"[AutoReport] 生成报告: {fold_dir.name}")#type:ignore
-            run_auto_report(fold_dir, gt_dir, img_dir, min_tumor_size=0)
-            self.print_to_log_file("[AutoReport] 报告生成完成")#type:ignore
-        except Exception as e:
-            self.print_to_log_file(f"[AutoReport] 失败: {e}")#type:ignore
+        super().perform_actual_validation(save_probabilities)  # type: ignore
 
 
 class AutoInternalTestMixin:
@@ -1165,6 +1278,15 @@ class AutoInternalTestMixin:
             "[InternalTest] 完成！报告已写入 test_report_custom.txt",
             also_print_to_console=True,
         )  # type: ignore
+
+        # 生成 test PNG 可视化，删除 nii.gz
+        _gen_viz_pngs_and_cleanup(
+            pred_folder=test_output_folder,
+            gt_dir=gt_dir,
+            img_dir=img_dir,
+            out_viz_dir=Path(self.output_folder) / "test_viz",  # type: ignore
+            log_fn=self.print_to_log_file,  # type: ignore
+        )
 
 
 class ExternalNoTumorMixin:
@@ -1377,21 +1499,29 @@ class Stage2FPSupMixin:
         checkpoint  = torch.load(ckpt_path, map_location='cpu', weights_only=False)
         state_dict  = checkpoint['network_weights']
 
-        # 找第一个 5D conv weight（3D卷积），扩展输入通道 1→3
-        for k, v in state_dict.items():
-            if v.ndim == 5 and 'weight' in k:
+        # 找所有输入通道为 1 的 5D conv weight，扩展 1→3
+        # PlainConvUNet 同一层权重在 state_dict 里有多个 key（.conv/.all_modules[0]，
+        # 以及 decoder.encoder 镜像路径），必须全部扩展，否则 load_state_dict 报 size mismatch
+        n_expanded = 0
+        for k in list(state_dict.keys()):
+            v = state_dict[k]
+            if v.ndim == 5 and 'weight' in k and v.shape[1] == 1:
                 new_w = torch.zeros(v.shape[0], 3, *v.shape[2:], dtype=v.dtype)
-                new_w[:, :1] = v      # 原 CT 通道权重保留
-                # 新 2 个通道（Stage1 prob/binary）初始化为 0，让网络自由学习如何使用
+                new_w[:, :1] = v      # 原 CT 通道权重保留，新 2 通道初始化为 0
                 state_dict[k] = new_w
+                n_expanded += 1
                 self.print_to_log_file(  # type: ignore
                     f'[Stage2Init] 扩展 {k}: {list(v.shape)} → {list(new_w.shape)}'
                 )
-                break
+        if n_expanded == 0:
+            self.print_to_log_file('[Stage2Init] 未找到输入通道=1的卷积权重，跳过扩展')  # type: ignore
 
         net = self.network  # type: ignore
         # DDP 场景下解包
         mod = net.module if hasattr(net, 'module') else net
+        # torch.compile 会在所有 key 前加 _orig_mod. 前缀，加载 checkpoint 前要剥掉这层包装
+        if hasattr(mod, '_orig_mod'):
+            mod = mod._orig_mod
         missing, unexpected = mod.load_state_dict(state_dict, strict=False)
         self.print_to_log_file(  # type: ignore
             f'[Stage2Init] 加载 Stage1 权重完成，missing={len(missing)}, unexpected={len(unexpected)}'

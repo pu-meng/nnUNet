@@ -14,6 +14,7 @@ from pumengyu.mixins import (
     Stage2FPSupMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
+from pumengyu.architectures.mla_unetr import MLAUNetBot3D
 
 
 class nnUNetTrainer_Baseline(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
@@ -261,10 +262,12 @@ class nnUNetTrainer_NoMirror(AutoInternalTestMixin, NoMirrorMixin, AutoReportMix
 
 class Tr_Stage2_FPSup(AutoInternalTestMixin, Stage2FPSupMixin, AutoReportMixin, nnUNetTrainer):
     """
-    两阶段 FP 抑制 — Stage2。
+    两阶段 FP 抑制 — Stage2 v1（基线版，Loss=Dice+CE，无专项 FP 惩罚）。
+    结果与 Baseline 持平，网络未能利用 Stage1 概率图通道。
+    对照实验保留，不再训练。
 
     输入：3 通道（CT + Stage1 肿瘤概率图 + Stage1 二值图）
-    Loss：MSE + binary BCE（肿瘤通道）
+    Loss：Dice+CE（与 nnUNetTrainer 一致）
     采样：无肿瘤 case 过采样 3×
 
     前置条件：Stage1 已对全部 imagesTr 推理并保存概率图（--save_probabilities），
@@ -300,6 +303,33 @@ class Tr_Stage1_TumorOnly(AutoInternalTestMixin, TumorOnlyTrainMixin, AutoReport
 
     结果目录：Tr_Stage1_TumorOnly__nnUNetPlans__3d_fullres/
     """
+
+
+class Tr_Stage2_FPSup_v2(AutoInternalTestMixin, NoTumorFPPenaltyMixin, Stage2FPSupMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    两阶段 FP 抑制 — Stage2 v2（修复版）。
+
+    v1 失败原因：Dice+CE 对 Stage1 附加通道无梯度信号，网络退化为 Stage1 行为。
+
+    修复方案：加入 NoTumorFPPenaltyMixin，
+    对 GT 无肿瘤 patch 额外惩罚 mean(p_tumor)，
+    提供明确梯度信号让网络学会利用 Stage1 概率图通道压制 FP。
+
+    输入：3 通道（CT + Stage1 概率图 + Stage1 二值图）
+    Loss：Dice+CE + λ·mean(p_tumor)  [仅 GT 无肿瘤 patch]
+    采样：无肿瘤 case 过采样 3×
+
+    训练命令：
+        RESULTS_FOLDER=/home/PuMengYu/nnUNet_workspace/results_v2 \\
+        nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr Tr_Stage2_FPSup_v2
+
+    结果目录：Tr_Stage2_FPSup_v2__nnUNetPlans__3d_fullres/
+    """
+
+    def __init__(self, plans, configuration, fold, dataset_json, device=torch.device('cuda')):
+        super().__init__(plans, configuration, fold, dataset_json, device)
+        self.num_epochs = 400
+        self.num_iterations_per_epoch = 150
 
 
 # ------------------------------------------------------------------ #
@@ -380,4 +410,133 @@ class nnUNetTrainer_UMamba_SizeOversample(SizeStratifiedOversampleMixin, AutoRep
         return _build_umamba_bot(
             plans_manager, configuration_manager,
             num_input_channels, num_output_channels, enable_deep_supervision,
+        )
+
+
+# ------------------------------------------------------------------ #
+# MLA-UNet 系列                                                       #
+# ------------------------------------------------------------------ #
+
+def _build_mla_unet_bot(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    **mla_kwargs,
+) -> MLAUNetBot3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+    return MLAUNetBot3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        **arch_kwargs,
+        **mla_kwargs,
+    )
+
+
+class nnUNetTrainer_MLAUNet(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    MLA-UNet Bot：在 nnUNet 标准 PlainConvUNet 的瓶颈层插入 Multi-head Latent Attention 块。
+
+    动机：DeepSeek-V2 的 MLA 通过低秩 KV 压缩（d_c = d_model // 4）在保持 full attention
+    全局感受野的同时将 KV 显存从 O(N·d) 降至 O(N·d_c)，允许在 3D 医学图像分割中
+    使用更小 patch（8³ 代替 16³）做细粒度分割，或用更大 batch size。
+
+    其余（encoder、decoder、loss、data augmentation）与 nnUNetTrainer 完全一致，
+    唯一变量 = 瓶颈处的 MLA 全局上下文建模。
+
+    超参（如需调整请子类化并覆盖 MLA_* 类变量）：
+        MLA_NUM_HEADS         = 8
+        MLA_NUM_BLOCKS        = 2
+        MLA_COMPRESSION_RATIO = 4   （d_c = d_bot // 4）
+        MLA_MLP_RATIO         = 4
+
+    结果目录：nnUNetTrainer_MLAUNet__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_1500(nnUNetTrainer_MLAUNet):
+    """MLAUNet 从头训练 1500 epoch，与 MLAUNet@1000 做收敛对比。"""
+    def run_training(self):
+        self.num_epochs = 1500
+        return super().run_training()
+
+
+class nnUNetTrainer_MLAUNet_MoE(nnUNetTrainer_MLAUNet):
+    """MLA-UNet Bot + MoE-FFN（DeepSeek V3 风格）。
+
+    与 nnUNetTrainer_MLAUNet 唯一区别：FFN 替换为 MoE-FFN
+        - 1 shared expert + 4 路由专家，top_k=2
+        - loss-free bias 均衡（expert_bias 非 Parameter，不进优化器）
+        - 激活容量约等于原 FFN（3 个半宽专家）
+
+    结果目录：nnUNetTrainer_MLAUNet_MoE__nnUNetPlans__3d_fullres/
+    """
+
+
+class nnUNetTrainer_MLAUNet_deeper(nnUNetTrainer_MLAUNet):
+    """MLA-UNet Bot，瓶颈加深到 4 层 MLA block（默认 2 层）。"""
+    MLA_NUM_BLOCKS = 4
+
+
+class nnUNetTrainer_MLAUNet_SizeOversample(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    MLA-UNet Bot + 大小分层重复过采样（V2 倍数）。
+
+    组合：MLA 瓶颈（低秩 KV 全局 attention）+ 数据层过采样（小肿瘤/无肿瘤频率均衡）。
+
+    结果目录：nnUNetTrainer_MLAUNet_SizeOversample__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 6
+    SSO_SMALL_REPEAT:      int = 5
+    SSO_NO_TUMOR_REPEAT:   int = 6
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
         )
