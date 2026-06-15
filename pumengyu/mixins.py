@@ -1003,17 +1003,24 @@ def _gen_viz_pngs_and_cleanup(
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
     from matplotlib.patches import Patch
+
+    # 中文字体（使用 FontProperties fname 直接指定，绕过 matplotlib 名称查找）
+    _cn_font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+    _cn_prop = fm.FontProperties(fname=_cn_font_path) if __import__("os").path.exists(_cn_font_path) else None
+    matplotlib.rcParams["axes.unicode_minus"] = False
 
     pred_folder  = Path(pred_folder)
     out_viz_dir  = Path(out_viz_dir)
     gt_dir       = Path(gt_dir)
     img_dir      = Path(img_dir)
 
+    _FN_COLOR = [0, 0, 1, 0.70]   # 纯蓝，与 legend 一致
     legend_entries = [
-        Patch(facecolor="green",     alpha=0.7,  label="TP"),
-        Patch(facecolor="red",       alpha=0.7,  label="FP"),
-        Patch(facecolor="royalblue", alpha=0.7,  label="FN"),
+        Patch(facecolor="green", alpha=0.25, label="TP"),
+        Patch(facecolor="red",   alpha=0.75, label="FP"),
+        Patch(facecolor="blue",  alpha=0.70, label="FN"),
     ]
 
     def _log(msg):
@@ -1067,25 +1074,45 @@ def _gen_viz_pngs_and_cleanup(
             gt_vox   = int(tp_mask.sum()) + int(fn_mask.sum())  # GT = TP + FN
 
             overlay_pred = np.zeros((*ct_sl.shape, 4), dtype=float)
-            overlay_pred[tp_mask] = [0,   1,   0, 0.55]
-            overlay_pred[fp_mask] = [1,   0,   0, 0.55]
-            overlay_pred[fn_mask] = [0, 0.4,   1, 0.65]
+            overlay_pred[tp_mask] = [0, 1, 0, 0.18]   # 淡绿：只标轮廓，不抢镜
+            overlay_pred[fp_mask] = [1, 0, 0, 0.75]   # 亮红：误报清晰可见
+            overlay_pred[fn_mask] = _FN_COLOR           # 纯蓝 alpha=0.70
 
-            fig = plt.figure(figsize=(16, 6))
-            gs  = fig.add_gridspec(1, 3, width_ratios=[0.22, 1, 1], wspace=0.05)
+            # 计算病灶 bounding box 用于放大图
+            lesion_mask = tp_mask | fp_mask | fn_mask
+            if lesion_mask.any():
+                rows = np.where(lesion_mask.any(axis=1))[0]
+                cols = np.where(lesion_mask.any(axis=0))[0]
+                H, W = ct_sl.shape
+                _pad = 32
+                r0 = max(0, rows[0]  - _pad)
+                r1 = min(H - 1, rows[-1] + _pad)
+                c0 = max(0, cols[0]  - _pad)
+                c1 = min(W - 1, cols[-1] + _pad)
+                ct_zoom = ct_sl[r0:r1+1, c0:c1+1]
+                ov_zoom = overlay_pred[r0:r1+1, c0:c1+1]
+                has_zoom = True
+            else:
+                has_zoom = False
+
+            fig = plt.figure(figsize=(22, 6))
+            gs  = fig.add_gridspec(1, 4, width_ratios=[0.22, 1, 1, 0.7], wspace=0.05)
 
             ax_l = fig.add_subplot(gs[0])
             ax_l.axis("off")
+            _leg_kw = dict(prop=_cn_prop, title_fontproperties=_cn_prop) if _cn_prop else dict(fontsize=11)
             ax_l.legend(
-                handles=legend_entries, loc="center", fontsize=11,
+                handles=legend_entries, loc="center",
                 frameon=True, framealpha=0.9, edgecolor="#888",
-                title="颜色说明", title_fontsize=12,
+                title="颜色说明",
                 handlelength=2, handleheight=1.6, borderpad=1.2, labelspacing=1.2,
+                **_leg_kw,
             )
 
             ax_ct = fig.add_subplot(gs[1])
             ax_ct.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
-            ax_ct.set_title(f"原始CT  z={z}  GT={gt_vox}体素", fontsize=12)
+            ax_ct.set_title(f"原始CT  z={z}  GT={gt_vox}体素", fontsize=8,
+                            fontproperties=_cn_prop)
             ax_ct.axis("off")
 
             ax_ov = fig.add_subplot(gs[2])
@@ -1093,9 +1120,16 @@ def _gen_viz_pngs_and_cleanup(
             ax_ov.imshow(overlay_pred, origin="lower")
             ax_ov.set_title(
                 f"预测结果  z={z}   TP={tp_mask.sum()}  FP={fp_mask.sum()}  FN={fn_mask.sum()}",
-                fontsize=12,
+                fontsize=8, fontproperties=_cn_prop,
             )
             ax_ov.axis("off")
+
+            ax_zm = fig.add_subplot(gs[3])
+            if has_zoom:
+                ax_zm.imshow(ct_zoom, cmap="gray", vmin=-150, vmax=250, origin="lower")
+                ax_zm.imshow(ov_zoom, origin="lower")
+                ax_zm.set_title(f"病灶放大 (±{_pad}px)", fontsize=8, fontproperties=_cn_prop)
+            ax_zm.axis("off")
 
             plt.savefig(case_dir / f"{case}_z{z}_full.png", dpi=150, bbox_inches="tight")
             plt.close()

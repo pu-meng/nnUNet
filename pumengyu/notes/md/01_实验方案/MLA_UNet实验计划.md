@@ -144,17 +144,27 @@ E3 fold_4 FP率 ≤ 33% 且 Dice ≥ SizeOversampleV2？
 
 ---
 
-## 五、结果记录表（训练完成后填写）
+## 五、结果记录表（721划分 fold_0 测试集，26 cases）
 
-| Trainer | fold | Dice | vs Baseline | FP率 | 小肿瘤Dice | 极小Dice | 结论 |
-|---------|------|------|-------------|------|-----------|---------|------|
-| **Baseline** | 4 | 0.610 | — | 33% | — | — | 参考 |
-| **Baseline** | 0 | 0.706 | — | — | — | — | 参考 |
-| **UFL（当前最优）** | 4 | 0.639 | +2.9pp | 33% | — | 0.406 | 参考 |
-| nnUNetTrainer_MLAUNet | 4 | — | — | — | — | — | Phase 1 |
-| nnUNetTrainer_MLAUNet | 0 | — | — | — | — | — | Phase 2 |
-| nnUNetTrainer_MLAUNet_deeper | 4 | — | — | — | — | — | Phase 3 |
-| nnUNetTrainer_MLAUNet_SizeOversample | 4 | — | — | — | — | — | Phase 3 |
+> 综合Dice = (FP→0, TN→1, 有肿瘤→真实Dice, 26case均值)  
+> 更新：2026-06-11
+
+| Trainer | 综合Dice | vs Baseline | 有肿瘤Dice | FP率 | 极小 | 小 | 结论 |
+|---------|--------:|------------|----------:|-----:|-----:|---:|------|
+| **Baseline（参考）** | 0.654 | — | 0.740 | 🔴 3/3 | 0.539 | 0.793 | 参考基准 |
+| **nnUNetTrainer_MLAUNet** | **0.692** | **+3.7pp** | 0.738 | 🟡 2/3 | 0.526 | 0.802 | ✅ 有效，FP改善，Phase 2 通过 |
+| nnUNetTrainer_MLAUNet\_1500 | 0.653 | −0.1pp | 0.739 | 🔴 3/3 | 0.549 | 0.798 | ❌ 1500epoch 更差，FP恶化 |
+| **nnUNetTrainer_MLAUNet\_MoE** | **0.695** | **+4.1pp** | 0.742 | 🟡 2/3 | 0.564 | 0.803 | ✅ 微优于 MLAUNet（+0.3pp），MoE-FFN 有效 |
+| nnUNetTrainer_MLAUNet\_deeper | — | — | — | — | — | — | 待跑（Phase 3） |
+| nnUNetTrainer_MLAUNet\_SizeOversample | — | — | — | — | — | — | 待跑（Phase 3） |
+
+**对照参考（同测试集其他方法）：**
+
+| Trainer | 综合Dice | vs Baseline | FP率 | 小 | 极小 |
+|---------|--------:|------------|-----:|---:|-----:|
+| SizeOversampleV2 | 0.698 | +4.4pp | 🟡 2/3 | 0.800 | 0.558 |
+| SizeOversampleV3 | 0.690 | +3.5pp | 🟡 2/3 | 0.800 | 0.514 |
+| NoMirror | 0.681 | +2.7pp | 🟡 2/3 | 0.785 | 0.515 |
 
 ---
 

@@ -132,6 +132,38 @@
 
 ---
 
+---
+
+## 对比实验（论文用，与 MoE_SizeOV4 横向比较）
+
+### nnUNetTrainer_MedNeXt
+- **核心**：MedNeXt-L（ConvNeXt 风格 3D UNet），作为论文对比 baseline
+- **关键超参**：n_channels=32, kernel_size=3, exp_r=[3,4,8,8,8,8,8,4,3], block_counts=[3,4,8,8,8,8,8,4,3]
+- **实验目录**：`nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/`
+- **定义位置**：`pumengyu/trainers/trainer.py` + `pumengyu/architectures/mednext.py`
+- **训练命令**：`CUDA_VISIBLE_DEVICES=0 python -m pumengyu.trainers.run_training --trainer nnUNetTrainer_MedNeXt --fold 0`
+- **备注**：使用 nnunet_mednext 包中的架构代码，通过 build_network_architecture 接入 nnUNetv2 训练流程；DS 输出 5 层（128³→8³）✅ 验证通过
+
+---
+
+### nnUNetTrainer_SwinUNETR
+- **核心**：SwinUNETR-B（MONAI 官方实现），Swin Transformer encoder + CNN decoder
+- **关键超参**：feature_size=48, depths=(2,2,2,2), num_heads=(3,6,12,24), window_size=7, patch_size=2
+- **实验目录**：`nnUNetTrainer_SwinUNETR__nnUNetPlans__3d_fullres/`
+- **定义位置**：`pumengyu/trainers/trainer.py` + `pumengyu/architectures/swinunetr.py`
+- **训练命令**：`CUDA_VISIBLE_DEVICES=0 nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr nnUNetTrainer_SwinUNETR`
+- **备注**：MONAI 1.5.x 新接口已去掉 img_size，用 patch_size=2；无 DS，trainer 关闭 DS ✅ 验证通过
+
+### nnUNetTrainer_nnFormer
+- **核心**：nnFormer（mednextv1 包附带的 nnFormer_tumor 实现），3D Swin Transformer UNet
+- **关键超参**：embedding_dim=96, depths=[2,2,2,2], num_heads=[3,6,12,24], patch_size=[4,4,4], window_size=[4,4,8,4]
+- **实验目录**：`nnUNetTrainer_nnFormer__nnUNetPlans__3d_fullres/`
+- **定义位置**：`pumengyu/trainers/trainer.py` + `pumengyu/architectures/nnformer.py`
+- **训练命令**：`CUDA_VISIBLE_DEVICES=1 nnUNetv2_train Dataset003_Liver 3d_fullres 0 -tr nnUNetTrainer_nnFormer`
+- **备注**：DS 代码已注释掉，始终返回单 tensor，trainer 关闭 DS ✅ 验证通过
+
+---
+
 ## 新增 Trainer 时的检查清单
 
 1. 在本文件对应数据集下追加一条，填写：类名、核心思路（一句话）、关键超参、实验目录后缀、定义位置

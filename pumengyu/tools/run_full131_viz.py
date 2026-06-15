@@ -111,13 +111,13 @@ def gen_png(case: str, pred_path: Path, out_dir: Path):
         ax_ct = fig.add_subplot(gs[1])
         ax_ct.imshow(ct_slice, cmap="gray", vmin=-150, vmax=250, origin="lower")
         ax_ct.imshow(overlay_gt, origin="lower")
-        ax_ct.set_title(f"CT + GT肿瘤  z={z}  ({gt_tumor_sl.sum()}体素)", fontsize=12)
+        ax_ct.set_title(f"CT + GT肿瘤  z={z}  ({gt_tumor_sl.sum()}体素)", fontsize=8)
         ax_ct.axis("off")
 
         ax_ov = fig.add_subplot(gs[2])
         ax_ov.imshow(ct_slice, cmap="gray", vmin=-150, vmax=250, origin="lower")
         ax_ov.imshow(overlay_pred, origin="lower")
-        ax_ov.set_title(f"预测结果  z={z}   TP={tp_n}  FP={fp_n}  FN={fn_n}", fontsize=12)
+        ax_ov.set_title(f"预测结果  z={z}   TP={tp_n}  FP={fp_n}  FN={fn_n}", fontsize=8)
         ax_ov.axis("off")
 
         out_path = out_dir / f"{case}_z{z}_full.png"

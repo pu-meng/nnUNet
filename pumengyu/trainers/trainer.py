@@ -15,6 +15,9 @@ from pumengyu.mixins import (
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D
+from pumengyu.architectures.mednext import build_mednext_large
+from pumengyu.architectures.swinunetr import build_swinunetr
+from pumengyu.architectures.nnformer import build_nnformer
 
 
 class nnUNetTrainer_Baseline(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
@@ -501,16 +504,239 @@ class nnUNetTrainer_MLAUNet_MoE(nnUNetTrainer_MLAUNet):
     """
 
 
+class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（含 MoE-FFN）+ 大小分层重复过采样 V2 倍数。
+
+    对照实验：验证 SizeOversampleV2(+4.4pp) 与 MLAUNet_MoE(+4.1pp) 的增益能否叠加。
+    两个提升机制正交：数据层（过采样频率均衡）vs 模型层（全局 attention + MoE）。
+
+    倍数与 SizeOversampleV2 完全一致（极小×6，小×5，无肿瘤×6），
+    网络架构与 nnUNetTrainer_MLAUNet_MoE 完全一致。
+
+    结果目录：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 6
+    SSO_SMALL_REPEAT:      int = 5
+    SSO_NO_TUMOR_REPEAT:   int = 6
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV3(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（含 MoE-FFN）+ 大小分层重复过采样 V3 倍数。
+
+    倍数与 SizeOversampleV3 完全一致（极小×8，小×6，中×3，极大×3，无肿瘤×6），
+    网络架构与 nnUNetTrainer_MLAUNet_MoE 完全一致。
+
+    结果目录：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV3__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 8
+    SSO_SMALL_REPEAT:      int = 6
+    SSO_MID_REPEAT:        int = 3
+    SSO_HUGE_REPEAT:       int = 3
+    SSO_NO_TUMOR_REPEAT:   int = 6
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（含 MoE-FFN）+ 均匀全量 2× 过采样。
+
+    假设：MoE 本身已具备对不同大小肿瘤的内部专门化路由，
+    无需按大小差异化过采样；统一将全部 case 重复 2× 保持自然分布，
+    让每个 expert 在更多样本上充分训练，避免 V2/V3 的分布扭曲。
+
+        全部 case（极小/小/中/大/无肿瘤）→ 2× 重复
+
+    对照：nnUNetTrainer_MLAUNet_MoE（无过采样）vs 本实验（均匀 2×）
+    结果目录：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（含 MoE-FFN）+ 均匀全量 3× 过采样（V5）。
+
+    与 V4 相同策略——全部 case 均匀过采样，维持自然分布；
+    但倍数从 2× 提升到 3×，让模型在更多样本上充分训练。
+    基于 V4 的综合优异表现（Overall 0.8330, Tumor Dice 0.7146）的进一步探索，
+    验证"更多数据 + MoE"的边际收益。
+
+        全部 case（极小/小/中/大/无肿瘤）→ 3× 重复
+
+    对照：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4（均匀 2×）vs 本实验（均匀 3×）
+    结果目录：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 3
+    SSO_SMALL_REPEAT:      int = 3
+    SSO_MID_REPEAT:        int = 3
+    SSO_HUGE_REPEAT:       int = 3
+    SSO_NO_TUMOR_REPEAT:   int = 3
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV6(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（含 MoE-FFN）+ 均匀全量 4× 过采样（V6）。
+
+    延续 V4（2×）→ V5（3×）→ V6（4×）的过采样梯度实验，
+    验证 4× 过采样是否能进一步提升外部泛化能力。
+    外部验证：V5（3×）外部 Overall 0.8025 > V4（2×）0.7871，
+    探索曲线拐点：3× 已经是最优还是 4× 更好？
+
+        全部 case（极小/小/中/大/无肿瘤）→ 4× 重复
+
+    对照：MoE_SizeOV4（2×）、MoE_SizeOV5（3×）vs 本实验（4×）
+    结果目录：nnUNetTrainer_MLAUNet_MoE_SizeOversampleV6__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 4
+    SSO_SMALL_REPEAT:      int = 4
+    SSO_MID_REPEAT:        int = 4
+    SSO_HUGE_REPEAT:       int = 4
+    SSO_NO_TUMOR_REPEAT:   int = 4
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
 class nnUNetTrainer_MLAUNet_deeper(nnUNetTrainer_MLAUNet):
     """MLA-UNet Bot，瓶颈加深到 4 层 MLA block（默认 2 层）。"""
     MLA_NUM_BLOCKS = 4
 
 
-class nnUNetTrainer_MLAUNet_SizeOversample(SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
+class nnUNetTrainer_MLAUNet_SizeOversample(AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer):
     """
-    MLA-UNet Bot + 大小分层重复过采样（V2 倍数）。
+    MLA-UNet Bot（含 MoE-FFN）+ 大小分层重复过采样（V2 倍数）。
 
-    组合：MLA 瓶颈（低秩 KV 全局 attention）+ 数据层过采样（小肿瘤/无肿瘤频率均衡）。
+    组合：MLA 瓶颈（低秩 KV 全局 attention + MoE-FFN）+ 数据层过采样（小肿瘤/无肿瘤频率均衡）。
+    验证 SizeOversampleV2(+4.4pp) 和 MLAUNet_MoE(+4.1pp) 的增益能否叠加。
+
+    注：commit 4aec13e 后 MLATransformerBlock 已将 MoE 硬编码，此 trainer 自动使用 MoE。
 
     结果目录：nnUNetTrainer_MLAUNet_SizeOversample__nnUNetPlans__3d_fullres/
     """
@@ -540,3 +766,167 @@ class nnUNetTrainer_MLAUNet_SizeOversample(SizeStratifiedOversampleMixin, AutoRe
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
         )
+
+
+# ------------------------------------------------------------------ #
+# MedNeXt-L                                                          #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_MedNeXt(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    MedNeXt-L（Large）对比实验。
+
+    架构：ConvNeXt 风格的 3D UNet，固定配置 MedNeXt-L：
+        n_channels=32, kernel_size=3, exp_r=[3,4,8,8,8,8,8,4,3]
+        block_counts=[3,4,8,8,8,8,8,4,3], do_res=True, do_res_up_down=True
+
+    训练策略：与 nnUNetTrainer_Baseline 完全一致（CE+Dice loss, mirror TTA）。
+    唯一变量 = 网络架构。
+
+    结果目录：nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+        )
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        # MedNeXt 用 do_ds 而非 decoder.deep_supervision
+        from torch._dynamo import OptimizedModule
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod  # 解包到内层真实模型，否则 torch.compile 追踪内层 do_ds 不变
+        mod.do_ds = enabled
+
+
+# ------------------------------------------------------------------ #
+# SwinUNETR                                                          #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_SwinUNETR(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    SwinUNETR-B 对比实验（MONAI 官方实现）。
+
+    架构：Swin Transformer encoder + CNN decoder，固定配置 SwinUNETR-B：
+        feature_size=48, depths=(2,2,2,2), num_heads=(3,6,12,24), window_size=7
+
+    注意：MONAI SwinUNETR 不含 deep supervision，此 trainer 关闭 DS（enable_deep_supervision=False）。
+    训练策略与 Baseline 完全一致，唯一变量 = 网络架构。
+
+    结果目录：nnUNetTrainer_SwinUNETR__nnUNetPlans__3d_fullres/
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        patch_size = tuple(configuration_manager.patch_size)
+        return build_swinunetr(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            patch_size=patch_size,
+        )
+
+    def initialize(self):
+        self.enable_deep_supervision = False
+        super().initialize()
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        pass  # SwinUNETR 无 DS 机制，no-op
+
+    def _do_i_compile(self):
+        return False  # torch.compile + use_checkpoint 已知冲突
+
+    def _get_deep_supervision_scales(self):
+        return None
+
+
+# ------------------------------------------------------------------ #
+# nnFormer                                                           #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_nnFormer(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    nnFormer 对比实验（mednextv1 包中附带的 nnFormer_tumor 实现）。
+
+    架构：3D Swin Transformer UNet（Encoder + Decoder 均为 Transformer），固定配置：
+        embedding_dim=96, depths=[2,2,2,2], num_heads=[3,6,12,24]
+        patch_size=[4,4,4], window_size=[4,4,8,4]
+
+    注意：该实现的 DS 已注释掉，始终返回单 tensor，此 trainer 关闭 DS。
+    训练策略与 Baseline 完全一致，唯一变量 = 网络架构。
+
+    显存优化：
+        - 梯度检查点：对所有 SwinTransformerBlock 启用，节省 ~40% 激活显存
+        - bf16 autocast：覆盖基类默认的 fp16，exponent 位数更多，无需 GradScaler
+
+    实测（RTX 4090 D, bs=2, 128³, bf16）：训练峰值 ~3 GB，无显存压力。
+
+    结果目录：nnUNetTrainer_nnFormer__nnUNetPlans__3d_fullres/
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        patch_size = tuple(configuration_manager.patch_size)
+        return build_nnformer(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            patch_size=patch_size,
+            use_gradient_checkpointing=True,
+        )
+
+    def initialize(self):
+        self.enable_deep_supervision = False
+        super().initialize()
+        # bf16 exponent 范围充足，不需要 loss scaling
+        self.grad_scaler = None
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        pass  # nnFormer 无 DS 机制，no-op
+
+    def _do_i_compile(self):
+        return False  # Transformer 架构与 torch.compile 兼容性差
+
+    def _get_deep_supervision_scales(self):
+        return None
+
+    def train_step(self, batch: dict) -> dict:
+        data = batch['data']
+        target = batch['target']
+        data = data.to(self.device, non_blocking=True)
+        if isinstance(target, list):
+            target = [i.to(self.device, non_blocking=True) for i in target]
+        else:
+            target = target.to(self.device, non_blocking=True)
+        self.optimizer.zero_grad(set_to_none=True)
+        # bf16 比 fp16 指数位多（8 vs 5），不溢出，不需要 GradScaler
+        with torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=True):
+            output = self.network(data)
+            l = self.loss(output, target)
+        l.backward()
+        torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
+        self.optimizer.step()
+        return {'loss': l.detach().cpu().numpy()}
