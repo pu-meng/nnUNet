@@ -7,15 +7,21 @@ from pumengyu.mixins import (
     SmallTumorOversampleMixin,
     SizeStratifiedOversampleMixin,
     UnifiedFocalLossMixin, TverskyLossMixin, AutoReportMixin, AutoInternalTestMixin,
-    NoTumorFPPenaltyMixin,
+    NoTumorFPPenaltyMixin, TopKNoTumorFPPenaltyMixin,
     ExternalNoTumorMixin,
     TumorOnlyTrainMixin,
     NoMirrorMixin,
     Stage2FPSupMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
-from pumengyu.architectures.mla_unetr import MLAUNetBot3D
-from pumengyu.architectures.mednext import build_mednext_large
+from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
+from pumengyu.architectures.mednext import build_mednext_large, build_mednext_large_mla
+from pumengyu.architectures.deep_plain_res_gn import (
+    build_deep_plain_res_gn,
+    build_deep_res_gn_mla,
+    build_deep_dwib_res_gn,
+    build_deep_dwib_med_config,
+)
 from pumengyu.architectures.swinunetr import build_swinunetr
 from pumengyu.architectures.nnformer import build_nnformer
 
@@ -188,6 +194,39 @@ class nnUNetTrainer_SizeOversampleV2_NTFP(
     SSO_TINY_REPEAT:     int = 6
     SSO_SMALL_REPEAT:    int = 5
     SSO_NO_TUMOR_REPEAT: int = 6
+
+
+class nnUNetTrainer_FPSafe(AutoInternalTestMixin, TopKNoTumorFPPenaltyMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    FP-Safe baseline：原版 nnUNet + 无肿瘤 Top-K 误报惩罚。
+
+    目标：验证 loss 层面的 false-positive-aware 约束能否降低无肿瘤 case 误报，
+    同时尽量不牺牲有肿瘤 case 的召回。
+
+    结果目录：nnUNetTrainer_FPSafe__nnUNetPlans__3d_fullres/
+    """
+    TKN_TUMOR_FP_LAMBDA: float = 1.0
+    TKN_TOPK_PERCENT: float = 0.01
+
+
+class nnUNetTrainer_SizeOV4_FPSafe(
+    AutoInternalTestMixin, TopKNoTumorFPPenaltyMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    SizeOV4 + FP-Safe：均匀全量 2× 过采样 + 无肿瘤 Top-K 误报惩罚。
+
+    数据层：所有 size/no-tumor 分层均 2×，对齐当前 SizeOV4 系列。
+    Loss 层：只在 GT 无肿瘤 sample 上惩罚最高置信 tumor 概率。
+
+    结果目录：nnUNetTrainer_SizeOV4_FPSafe__nnUNetPlans__3d_fullres/
+    """
+    TKN_TUMOR_FP_LAMBDA: float = 1.0
+    TKN_TOPK_PERCENT: float = 0.01
+    SSO_TINY_REPEAT:     int = 2
+    SSO_SMALL_REPEAT:    int = 2
+    SSO_MID_REPEAT:      int = 2
+    SSO_HUGE_REPEAT:     int = 2
+    SSO_NO_TUMOR_REPEAT: int = 2
 
 
 class nnUNetTrainer_SizeOversampleV2_Ext25(
@@ -465,6 +504,7 @@ class nnUNetTrainer_MLAUNet(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
     MLA_NUM_BLOCKS:        int = 2
     MLA_COMPRESSION_RATIO: int = 4
     MLA_MLP_RATIO:         int = 4
+    MLA_USE_MOE:           bool = False  # 旧 checkpoint 用简单 MLP，与 mla_bot.blocks.*.mlp.* 命名对齐
 
     @classmethod
     def build_network_architecture(
@@ -482,6 +522,7 @@ class nnUNetTrainer_MLAUNet(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
             mla_num_blocks=cls.MLA_NUM_BLOCKS,
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            mla_use_moe=cls.MLA_USE_MOE,
         )
 
 
@@ -502,6 +543,7 @@ class nnUNetTrainer_MLAUNet_MoE(nnUNetTrainer_MLAUNet):
 
     结果目录：nnUNetTrainer_MLAUNet_MoE__nnUNetPlans__3d_fullres/
     """
+    MLA_USE_MOE: bool = True
 
 
 class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2(
@@ -724,6 +766,561 @@ class nnUNetTrainer_MLAUNet_MoE_SizeOversampleV6(
         )
 
 
+# ------------------------------------------------------------------ #
+# MLA-UNet DW（Encoder 换 Depthwise Separable Conv）                  #
+# ------------------------------------------------------------------ #
+
+def _build_mla_unet_dw_bot(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    dw_kernel_size: int = 5,
+    **mla_kwargs,
+) -> MLAUNetDWBot3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+    return MLAUNetDWBot3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        dw_kernel_size=dw_kernel_size,
+        **arch_kwargs,
+        **mla_kwargs,
+    )
+
+
+class nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（MoE-FFN）+ 全网络 5×5×5 DW Sep Conv + 均匀全量 2× 过采样（内部最优配置）。
+
+    名字保留 DW7 标记历史，实际 kernel=5（7×7×7 在 3D 上 cuDNN 无优化实现，慢 10×）。
+
+    基于 nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4（内部 Overall 0.8330，最优）：
+        Encoder + Decoder 所有 3×3×3 Conv3d → 5×5×5 DWSepConv3d
+        k=5 DWSep 参数量 ≈ k=3 标准卷积的 14%（C=128），感受野 5³=125 体素
+        MLA Bottleneck 保持标准卷积不变
+
+    过采样：全部 case 均匀 2× 重复（与 SizeOV4 一致）。
+
+    结果目录：nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    DW_KERNEL_SIZE:        int = 5
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_dw_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            dw_kernel_size=cls.DW_KERNEL_SIZE,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV5(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（MoE-FFN）+ 全网络 5×5×5 DW Sep Conv + 均匀全量 3× 过采样（外部最优配置）。
+
+    名字保留 DW7 标记历史，实际 kernel=5（7×7×7 在 3D 上 cuDNN 无优化实现，慢 10×）。
+
+    基于 nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5（外部 IRCADb Overall 0.8025，最优）：
+        Encoder + Decoder 所有 3×3×3 Conv3d → 5×5×5 DWSepConv3d
+        MLA Bottleneck 保持标准卷积不变
+
+    过采样：全部 case 均匀 3× 重复（与 SizeOV5 一致）。
+
+    结果目录：nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV5__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    DW_KERNEL_SIZE:        int = 5
+    SSO_TINY_REPEAT:       int = 3
+    SSO_SMALL_REPEAT:      int = 3
+    SSO_MID_REPEAT:        int = 3
+    SSO_HUGE_REPEAT:       int = 3
+    SSO_NO_TUMOR_REPEAT:   int = 3
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_dw_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            dw_kernel_size=cls.DW_KERNEL_SIZE,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+def _build_mla_unet_ib_bot(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    ib_kernel_size: int = 7,
+    exp_r: int = 4,
+    channels_per_group: int = 1,
+    use_checkpoint: bool = False,
+    **mla_kwargs,
+) -> MLAUNetIBBot3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+    return MLAUNetIBBot3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        ib_kernel_size=ib_kernel_size,
+        exp_r=exp_r,
+        channels_per_group=channels_per_group,
+        use_checkpoint=use_checkpoint,
+        **arch_kwargs,
+        **mla_kwargs,
+    )
+
+
+def _build_mla_unet_dwsep_res_bot(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    enc_conv_per_stage: int = 3,
+    dw_kernel_size: int = 3,
+    **mla_kwargs,
+) -> MLAUNetDWSepResBot3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+
+    # 增加 encoder 深度：n_conv_per_stage 统一设为 enc_conv_per_stage
+    orig = arch_kwargs.get('n_conv_per_stage')
+    if orig is not None:
+        arch_kwargs['n_conv_per_stage'] = [enc_conv_per_stage] * len(orig)
+
+    return MLAUNetDWSepResBot3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        dw_kernel_size=dw_kernel_size,
+        **arch_kwargs,
+        **mla_kwargs,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DWSepRes4 + MoE + SizeOV4
+# ──────────────────────────────────────────────────────────────────────────────
+
+class nnUNetTrainer_DWSepRes4_MoE_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    DWSep(k=3)+残差 encoder + MLA-MoE 瓶颈 + plain conv decoder + 均匀 2× 过采样。
+
+    架构改动（对比 MLAUNet_MoE_SizeOV4）：
+      - Encoder stride=1 块 → DWSepResBlock3D
+            DW(k=3, groups=C) → InstanceNorm3d → GELU → PW(1×1) → + residual
+      - n_conv_per_stage: 2 → 4（每 encoder stage 多 2 层，以深度补偿 k=3 小感受野）
+        DWSepRes 每块参数极少，n=4 总参 23.84M，比原 baseline(30.75M) 少 23%
+      - Decoder 保持 plain conv 不变（encoder/decoder 不对称，集中容量在 encoder）
+      - MLA Bottleneck（MoE-FFN）不变
+
+    过采样策略（与 MLAUNet_MoE_SizeOV4 相同）：
+      全部 case 均匀 2× 重复，维持自然分布。
+
+    消融意义：
+      验证"DWSep 参数效率 + 残差 + encoder 加深(4层)"能否超过
+      纯 IBConvBlock3D(k=7) 方案（IB7_V4 Overall=0.8192）及 MoE_SizeOV4(0.8330)。
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    ENC_CONV_PER_STAGE:    int = 4
+    DW_KERNEL_SIZE:        int = 3
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_dwsep_res_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            enc_conv_per_stage=cls.ENC_CONV_PER_STAGE,
+            dw_kernel_size=cls.DW_KERNEL_SIZE,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+def _build_ib_unet(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    ib_kernel_size: int = 7,
+    exp_r: int = 4,
+    channels_per_group: int = 1,
+    use_checkpoint: bool = False,
+) -> IBConvUNet3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+    return IBConvUNet3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        ib_kernel_size=ib_kernel_size,
+        exp_r=exp_r,
+        channels_per_group=channels_per_group,
+        use_checkpoint=use_checkpoint,
+        **arch_kwargs,
+    )
+
+
+def _build_dwsep_unet(
+    plans_manager: PlansManager,
+    configuration_manager: ConfigurationManager,
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool,
+    dw_kernel_size: int = 7,
+) -> DWSepUNet3D:
+    arch_kwargs = dict(**configuration_manager.network_arch_init_kwargs)
+    for key in configuration_manager.network_arch_init_kwargs_req_import:
+        if arch_kwargs.get(key) is not None:
+            arch_kwargs[key] = pydoc.locate(arch_kwargs[key])
+    return DWSepUNet3D(
+        input_channels=num_input_channels,
+        num_classes=num_output_channels,
+        deep_supervision=enable_deep_supervision,
+        dw_kernel_size=dw_kernel_size,
+        **arch_kwargs,
+    )
+
+
+class nnUNetTrainer_DWSep7(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    PlainConvUNet + DWSepConv3d(k=7)，无 MLA，无 MoE，无 SizeOversample。
+
+    消融目标：单独验证"大核感受野"的贡献，不引入倒置瓶颈结构。
+    替换所有 nn.Conv3d（含 stride=2）为 DW(7×7×7)+PW(1×1×1)，1×1×1 跳过。
+
+    与 IBConv7 的区别：
+      DWSep7  = DW(k) → PW           （无 Norm/激活/残差，极简）
+      IBConv7 = DW(k) → Norm → PW_expand → GELU → PW_compress → +residual
+
+    结果目录：nnUNetTrainer_DWSep7__nnUNetPlans__3d_fullres/
+    """
+
+    DW_KERNEL_SIZE: int = 7
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_dwsep_unet(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            dw_kernel_size=cls.DW_KERNEL_SIZE,
+        )
+
+
+class nnUNetTrainer_IBConv7(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    PlainConvUNet + IBConvBlock3D(k=7, exp_r=4, depthwise)，无 MLA，无 MoE，无 SizeOversample。
+
+    消融目标：单独验证大核倒置瓶颈卷积（InvertedBottleneck k=7）对肝脏肿瘤分割的贡献，
+    排除 MLA 全局注意力和 MoE 路由的干扰。
+
+    架构：PlainConvUNet 全网 stride=1 卷积块 → IBConvBlock3D
+        DW(7×7×7, groups=C) → InstanceNorm3d → PW_expand(×4) → GELU → PW_compress → + residual
+    stride=2 下采样保持标准 3×3×3 不变。
+
+    参数量估计：与 MedNeXt-L 相近（DW 大核 + 倒置瓶颈结构相同）。
+    训练：nnUNet 默认 1000 epoch，无额外修改。
+    结果目录：nnUNetTrainer_IBConv7__nnUNetPlans__3d_fullres/
+    """
+
+    IB_KERNEL_SIZE:        int = 7
+    IB_EXP_R:              int = 4
+    IB_CHANNELS_PER_GROUP: int = 1   # 纯 depthwise，与 MedNeXt 一致
+    IB_USE_CHECKPOINT:     bool = False
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_ib_unet(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            ib_kernel_size=cls.IB_KERNEL_SIZE,
+            exp_r=cls.IB_EXP_R,
+            channels_per_group=cls.IB_CHANNELS_PER_GROUP,
+            use_checkpoint=cls.IB_USE_CHECKPOINT,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（MoE-FFN）+ 倒置瓶颈 7×7×7 大核 + 均匀 2× 过采样（内部最优）。
+
+    架构（MLAUNetIBBot3D）：
+        stride=1 ConvDropoutNormReLU → IBConvBlock3D(k=7, exp_r=4)
+            DW(7, stride=1, groups=C) → InstanceNorm → PW_expand → GELU → PW_compress → +residual
+        stride=2 下采样卷积保持标准 3×3×3（避免大核步长 cuDNN 无优化问题）
+        MLA Bottleneck 不变
+
+    与 DW7（DWSepConv3d）的区别：大核不碰 stride=2；有 expand/compress 非线性；有 residual 连接。
+
+    过采样（SizeOV4）：全 case 均匀 2×，对齐内部最优 nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4。
+    结果目录：nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    IB_KERNEL_SIZE:        int = 7
+    IB_EXP_R:              int = 4
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_ib_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            ib_kernel_size=cls.IB_KERNEL_SIZE,
+            exp_r=cls.IB_EXP_R,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV5(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA-UNet Bot（MoE-FFN）+ 倒置瓶颈 7×7×7 大核 + 均匀 3× 过采样（外部最优）。
+
+    架构同 IB7_V4（MLAUNetIBBot3D, k=7）。
+    过采样改为 3×，对齐外部 IRCADb 最优 nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5（Overall 0.8025）。
+    结果目录：nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV5__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    IB_KERNEL_SIZE:        int = 7
+    IB_EXP_R:              int = 4
+    SSO_TINY_REPEAT:       int = 3
+    SSO_SMALL_REPEAT:      int = 3
+    SSO_MID_REPEAT:        int = 3
+    SSO_HUGE_REPEAT:       int = 3
+    SSO_NO_TUMOR_REPEAT:   int = 3
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_ib_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            ib_kernel_size=cls.IB_KERNEL_SIZE,
+            exp_r=cls.IB_EXP_R,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLA_GK7_V4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA = MLAUNet MoE 基础架构
+    GK7 = Grouped Conv k=7（channels_per_group=16，M=16，Tensor Core 可用）
+    V4  = SizeOversampleV4（均匀 2×）
+
+    动机：IB7 纯 depthwise M=1 → Tensor Core 闲置（84% 时间在 CUDA Core）。
+    改用 groups=C/16（每组 16 通道），M=16 满足 Tensor Core 最低要求，k=7 感受野不变。
+    结果目录：nnUNetTrainer_MLA_GK7_V4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    IB_KERNEL_SIZE:        int = 7
+    IB_EXP_R:              int = 4
+    IB_CHANNELS_PER_GROUP: int = 16
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_ib_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            ib_kernel_size=cls.IB_KERNEL_SIZE,
+            exp_r=cls.IB_EXP_R,
+            channels_per_group=cls.IB_CHANNELS_PER_GROUP,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_MLA_GK5_V4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MLA = MLAUNet MoE 基础架构
+    GK5 = Grouped Conv k=5（channels_per_group=16，M=16，Tensor Core 可用）
+    V4  = SizeOversampleV4（均匀 2×）
+    + Gradient Checkpointing（激活不保留，反向时重算，显存 ~50% 减少）
+
+    vs GK7：k=5³=125 < k=7³=343，DW 计算量 2.7×减少，感受野从 7→5。
+    结果目录：nnUNetTrainer_MLA_GK5_V4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    IB_KERNEL_SIZE:        int = 5
+    IB_EXP_R:              int = 4
+    IB_CHANNELS_PER_GROUP: int = 16
+    IB_USE_CHECKPOINT:     bool = True
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return _build_mla_unet_ib_bot(
+            plans_manager, configuration_manager,
+            num_input_channels, num_output_channels, enable_deep_supervision,
+            ib_kernel_size=cls.IB_KERNEL_SIZE,
+            exp_r=cls.IB_EXP_R,
+            channels_per_group=cls.IB_CHANNELS_PER_GROUP,
+            use_checkpoint=cls.IB_USE_CHECKPOINT,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
 class nnUNetTrainer_MLAUNet_deeper(nnUNetTrainer_MLAUNet):
     """MLA-UNet Bot，瓶颈加深到 4 层 MLA block（默认 2 层）。"""
     MLA_NUM_BLOCKS = 4
@@ -807,6 +1404,185 @@ class nnUNetTrainer_MedNeXt(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
         mod = self.network.module if self.is_ddp else self.network
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod  # 解包到内层真实模型，否则 torch.compile 追踪内层 do_ds 不变
+        mod.do_ds = enabled
+
+
+class nnUNetTrainer_MedNeXt_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt):
+    """
+    MedNeXt-L + FP-Safe：强 DW+IB backbone 上验证无肿瘤 Top-K 误报惩罚。
+
+    目标：观察 MedNeXt 的同域高分是否可以在降低无肿瘤误报、改善外部泛化的同时保留。
+
+    结果目录：nnUNetTrainer_MedNeXt_FPSafe__nnUNetPlans__3d_fullres/
+    """
+    TKN_TUMOR_FP_LAMBDA: float = 1.0
+    TKN_TOPK_PERCENT: float = 0.01
+
+
+class nnUNetTrainer_MedNeXt_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MedNeXt-L + 均匀全量 2× 过采样（SizeOV4）。
+
+    消融目标：验证 SizeOV4 策略是否在 MedNeXt 骨干上同样有效。
+    对照 nnUNetTrainer_MedNeXt（0.8402）单一变量 = 过采样。
+
+    结果目录：nnUNetTrainer_MedNeXt_SizeOV4__nnUNetPlans__3d_fullres/
+    """
+
+    SSO_TINY_REPEAT:     int = 2
+    SSO_SMALL_REPEAT:    int = 2
+    SSO_MID_REPEAT:      int = 2
+    SSO_HUGE_REPEAT:     int = 2
+    SSO_NO_TUMOR_REPEAT: int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+        )
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        from torch._dynamo import OptimizedModule
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod
+        mod.do_ds = enabled
+
+    def _do_i_compile(self):
+        return False
+
+    def _do_i_compile(self):
+        return False
+
+    def _do_i_compile(self):
+        return False
+
+
+class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    MedNeXt-L + MLA Bottleneck。
+
+    架构（MedNeXtMLABot）：
+        Encoder/Decoder：MedNeXt-L（k=3 IB 卷积 + 残差，block_counts=[3,4,8,8,8,8,8,4,3]）
+        Bottleneck：MedNeXt bottleneck（8 IB blocks, 512 ch）→ MLABottleneck3D（2 层 MLA）
+
+    动机：MedNeXt IB 卷积提供强局部特征，MLA 在最低分辨率特征图建立全局依赖，两者互补。
+    对照 nnUNetTrainer_MedNeXt（0.8402）单一变量 = MLA bottleneck。
+
+    结果目录：nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mla(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        from torch._dynamo import OptimizedModule
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod
+        mod.do_ds = enabled
+
+
+class nnUNetTrainer_MedNeXt_MLA_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt_MLA):
+    """
+    MedNeXt-L + MLA Bottleneck + FP-Safe。
+
+    当前主线候选：在外部验证最强的 MedNeXt_MLA 基础上，加入无肿瘤 Top-K
+    tumor probability 惩罚，验证是否能进一步降低外部无肿瘤误报，同时保留
+    MedNeXt_MLA 的跨域泛化优势。
+
+    对照：
+      - nnUNetTrainer_MedNeXt
+      - nnUNetTrainer_MedNeXt_FPSafe
+      - nnUNetTrainer_MedNeXt_MLA
+
+    结果目录：nnUNetTrainer_MedNeXt_MLA_FPSafe__nnUNetPlans__3d_fullres/
+    """
+    TKN_TUMOR_FP_LAMBDA: float = 1.0
+    TKN_TOPK_PERCENT: float = 0.01
+
+
+class nnUNetTrainer_MedNeXt_MLA_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    MedNeXt-L + MLA Bottleneck + 均匀全量 2× 过采样（SizeOV4）。
+
+    对照实验链（单一变量逐步叠加）：
+        MedNeXt（0.8402）
+        → + SizeOV4          → nnUNetTrainer_MedNeXt_SizeOV4
+        → + MLA              → nnUNetTrainer_MedNeXt_MLA
+        → + MLA + SizeOV4   → 本实验（完整组合）
+
+    结果目录：nnUNetTrainer_MedNeXt_MLA_SizeOV4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mla(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        from torch._dynamo import OptimizedModule
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod
         mod.do_ds = enabled
 
 
@@ -930,3 +1706,310 @@ class nnUNetTrainer_nnFormer(AutoInternalTestMixin, AutoReportMixin, nnUNetTrain
         torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
         self.optimizer.step()
         return {'loss': l.detach().cpu().numpy()}
+
+
+# ------------------------------------------------------------------ #
+# DeepPlainResGN：消融实验 —— 深层 Plain Conv + 残差 + GroupNorm     #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_DeepPlainResGN(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    消融实验：证明 MedNeXt 的性能提升来自"更深 + 残差 + GroupNorm"，
+    而非 depthwise separable conv（倒置瓶颈）。
+
+    架构（DeepPlainResGN）：
+        plain 3×3 Conv3d + BasicBlockD 残差 + GroupNorm(8)
+        9 个处理位置（5 enc + 4 dec），参数量 ~61.1M ≈ MedNeXt-L（61.8M）
+        encoder block_counts=[3,4,4,4,4]，decoder=[4,4,4,3]
+        features=[32,64,128,256,384]，strides 匹配 MedNeXt（底部 8³）
+
+    对照链：
+        Baseline（6 stages, InstanceNorm, 无残差）→ 0.7941
+        ↓ +深度 +残差 +GroupNorm（本实验）         → ?
+        MedNeXt（+DW sep conv）                   → 0.8402
+
+    结果目录：nnUNetTrainer_DeepPlainResGN__nnUNetPlans__3d_fullres/
+    """
+
+    USE_CHECKPOINT: bool = True
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_plain_res_gn(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=cls.USE_CHECKPOINT,
+        )
+
+
+class nnUNetTrainer_DeepPlainResGN_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    DeepPlainResGN + 均匀全量 2× 过采样（SizeOV4）。
+
+    完整消融对齐：
+        MedNeXt_SizeOV4（DW sep + 残差 + GN + SizeOV4） → 0.8431
+        DeepPlainResGN_SizeOV4（Plain + 残差 + GN + SizeOV4）→ ?
+
+    若结果接近 MedNeXt_SizeOV4，说明：
+        1. DW sep conv 对性能影响有限
+        2. 真正关键因素 = 深度 + 残差 + GroupNorm + 过采样策略
+
+    结果目录：nnUNetTrainer_DeepPlainResGN_SizeOV4__nnUNetPlans__3d_fullres/
+    """
+
+    USE_CHECKPOINT: bool = True
+    SSO_TINY_REPEAT:     int = 2
+    SSO_SMALL_REPEAT:    int = 2
+    SSO_MID_REPEAT:      int = 2
+    SSO_HUGE_REPEAT:     int = 2
+    SSO_NO_TUMOR_REPEAT: int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_plain_res_gn(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=cls.USE_CHECKPOINT,
+        )
+
+
+
+# ------------------------------------------------------------------ #
+# DeepResGN_MLA：你真正的贡献架构                                    #
+# 强底座（深层残差GN）+ MLA 全局注意力瓶颈                           #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_DeepResGN_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    核心架构：DeepResGN 骨干 + MLA Bottleneck。
+
+    之前 MLAUNet_MoE_SizeOV4（0.8330）< MedNeXt_SizeOV4（0.8431）的原因：
+        旧 MLAUNet 底座 = 默认 nnUNet（6 stages, [2,2,2,2,2,2], InstanceNorm, 无残差）
+        MLA 插在弱底座上，MLA 的全局建模能力无法发挥。
+
+    本架构修正：
+        底座换成 DeepResGN（5 stages, [3,4,4,4,4], GroupNorm, 残差，61M≈MedNeXt）
+        MLA 插在强底座的 bottleneck（384ch, 8³），在有足够局部特征的基础上建模全局依赖。
+
+    消融链（单一变量）：
+        DeepPlainResGN（强底座，无MLA）  → ?
+        DeepResGN_MLA （强底座，有MLA）  → ?（期望更高）
+        MedNeXt（DW sep，无MLA）         → 0.8402
+
+    结果目录：nnUNetTrainer_DeepResGN_MLA__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_res_gn_mla(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=True,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_DeepResGN_MLA_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    DeepResGN_MLA + SizeOV4：完整贡献架构。
+
+    完整对比：
+        MedNeXt_SizeOV4（DW sep，无MLA，有SizeOV4）          → 0.8431
+        DeepResGN_MLA_SizeOV4（Plain残差GN，有MLA，有SizeOV4）→ ?
+
+    结果目录：nnUNetTrainer_DeepResGN_MLA_SizeOV4__nnUNetPlans__3d_fullres/
+    """
+
+    MLA_NUM_HEADS:         int = 8
+    MLA_NUM_BLOCKS:        int = 2
+    MLA_COMPRESSION_RATIO: int = 4
+    MLA_MLP_RATIO:         int = 4
+    SSO_TINY_REPEAT:       int = 2
+    SSO_SMALL_REPEAT:      int = 2
+    SSO_MID_REPEAT:        int = 2
+    SSO_HUGE_REPEAT:       int = 2
+    SSO_NO_TUMOR_REPEAT:   int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_res_gn_mla(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=True,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+        )
+
+
+class nnUNetTrainer_DeepDWIBResGN(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    消融实验：证明 DW+IB conv 是可迁移的有效成分，而非 MedNeXt 精心调参的结果。
+
+    架构（DeepDWIBResGN）：
+        Encoder：DWIBBlock（DW k3 + IB r=8 + GN + 残差），features=[32,64,128,256,512]
+                 block counts=[3,4,8,8,8]，参数量 ~58M
+        Decoder：标准 plain-conv UNetDecoder，n_conv=[4,4,4,3]
+
+    对照链：
+        DeepPlainResGN（plain 3×3, GN, 残差）→ 0.7966   ← 唯一变量 = block 类型
+        DeepDWIBResGN （DW+IB,    GN, 残差）→ ?
+        MedNeXt-L（专有架构, DW+IB）         → 0.8402
+
+    若 DeepDWIBResGN ≈ MedNeXt → DW+IB 是可迁移方法，不依赖 MedNeXt 作者的架构设计。
+
+    训练策略：与 nnUNetTrainer_Baseline 完全一致（CE+Dice loss, mirror TTA）。
+
+    结果目录：nnUNetTrainer_DeepDWIBResGN__nnUNetPlans__3d_fullres/
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_dwib_res_gn(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=True,
+        )
+
+
+class nnUNetTrainer_DeepDWIBResGN_SizeOV4(
+    AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
+):
+    """
+    DeepDWIBResGN + 均匀全量 2× 过采样（SizeOV4）。
+
+    消融对齐：
+        MedNeXt_SizeOV4      （DW+IB, 专有架构, SizeOV4）→ 0.8431
+        DeepDWIBResGN_SizeOV4（DW+IB, 通用架构, SizeOV4）→ ?
+
+    对照 nnUNetTrainer_DeepDWIBResGN，单一变量 = 过采样。
+
+    结果目录：nnUNetTrainer_DeepDWIBResGN_SizeOV4__nnUNetPlans__3d_fullres/
+    """
+
+    SSO_TINY_REPEAT:     int = 2
+    SSO_SMALL_REPEAT:    int = 2
+    SSO_MID_REPEAT:      int = 2
+    SSO_HUGE_REPEAT:     int = 2
+    SSO_NO_TUMOR_REPEAT: int = 2
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_dwib_res_gn(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=True,
+        )
+
+
+class nnUNetTrainer_DeepDWIBMedConfig(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
+    """
+    显式 MedNeXt-L 配置对齐版的独立 DW+IB 复现。
+
+    目标：
+        检验只靠公开可见的结构配置，是否能独立复现 MedNeXt 的高性能。
+
+    显式对齐：
+        channels     = 32,64,128,256,512,256,128,64,32
+        block_counts = [3,4,8,8,8,8,8,4,3]
+        exp_r        = [3,4,8,8,8,8,8,4,3]
+        skip fusion  = add
+        encoder/decoder 都使用 DW+IB residual block
+
+    刻意不对齐的代码级细节：
+        不复用官方 MedNeXt 类；
+        up/down block、padding、normalization group 数、conv bias 等保持自写实现。
+
+    对照：
+        nnUNetTrainer_MedNeXt        官方/移植 MedNeXt-L
+        nnUNetTrainer_DeepDWIBResGN  只对齐 DW+IB 思想，未对齐 decoder exp_r/block_counts
+
+    结果目录：nnUNetTrainer_DeepDWIBMedConfig__nnUNetPlans__3d_fullres/
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_deep_dwib_med_config(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            use_checkpoint=True,
+        )
+
+    def set_deep_supervision_enabled(self, enabled: bool):
+        from torch._dynamo import OptimizedModule
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod
+        mod.do_ds = enabled
+
+    def _do_i_compile(self):
+        return False

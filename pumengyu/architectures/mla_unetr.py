@@ -192,8 +192,9 @@ class MoEFFN(nn.Module):
 
 class MLATransformerBlock(nn.Module):
     """
-    Pre-LN Transformer block，attention 替换为 MLA，FFN 替换为 MoE-FFN。
-    MLA+MoE组合
+    Pre-LN Transformer block，attention 替换为 MLA。
+    use_moe=True：FFN 替换为 MoE-FFN（DeepSeek V3 风格）。
+    use_moe=False：FFN 为简单 MLP，兼容旧 checkpoint（mlp.0/mlp.3 命名）。
     """
 
     def __init__(
@@ -204,16 +205,29 @@ class MLATransformerBlock(nn.Module):
         mlp_ratio: int = 4,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
+        use_moe: bool = True,
     ):
         super().__init__()
-        self.norm1 = nn.LayerNorm(d_model)
-        self.attn  = MultiHeadLatentAttention(d_model, num_heads, compression_ratio, attn_drop)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.ffn   = MoEFFN(d_model, mlp_ratio, drop=proj_drop)
+        self.norm1    = nn.LayerNorm(d_model)
+        self.attn     = MultiHeadLatentAttention(d_model, num_heads, compression_ratio, attn_drop)
+        self.norm2    = nn.LayerNorm(d_model)
+        self.use_moe  = use_moe
+        if use_moe:
+            self.ffn  = MoEFFN(d_model, mlp_ratio, drop=proj_drop)
+        else:
+            self.mlp  = nn.Sequential(
+                nn.Linear(d_model, d_model * mlp_ratio),
+                nn.GELU(),
+                nn.Dropout(proj_drop),
+                nn.Linear(d_model * mlp_ratio, d_model),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
-        x = x + self.ffn(self.norm2(x))
+        if self.use_moe:
+            x = x + self.ffn(self.norm2(x))
+        else:
+            x = x + self.mlp(self.norm2(x))
         return x
 
 
@@ -239,6 +253,7 @@ class MLABottleneck3D(nn.Module):
         mlp_ratio: int = 4,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
+        use_moe: bool = True,
     ):
         super().__init__()
         # 保证 num_heads 能整除 d_model（某些 plan 瓶颈通道数不是 8 的整倍数）
@@ -246,7 +261,7 @@ class MLABottleneck3D(nn.Module):
             num_heads //= 2
 
         self.blocks = nn.Sequential(*[
-            MLATransformerBlock(d_model, num_heads, compression_ratio, mlp_ratio, attn_drop, proj_drop)
+            MLATransformerBlock(d_model, num_heads, compression_ratio, mlp_ratio, attn_drop, proj_drop, use_moe=use_moe)
             for _ in range(num_blocks)
         ])
         self.norm = nn.LayerNorm(d_model)
@@ -303,6 +318,7 @@ class MLAUNetBot3D(PlainConvUNet):
         mla_num_blocks: int = 2,
         mla_compression_ratio: int = 4,
         mla_mlp_ratio: int = 4,
+        mla_use_moe: bool = True,
     ):
         super().__init__(
             input_channels, n_stages, features_per_stage, conv_op, kernel_sizes,
@@ -313,9 +329,319 @@ class MLAUNetBot3D(PlainConvUNet):
         d_bot = self.encoder.output_channels[-1]
         self.mla_bot = MLABottleneck3D(
             d_bot, mla_num_heads, mla_num_blocks, mla_compression_ratio, mla_mlp_ratio,
+            use_moe=mla_use_moe,
         )
 
     def forward(self, x: torch.Tensor):
         skips = self.encoder(x)
         skips[-1] = self.mla_bot(skips[-1])
         return self.decoder(skips)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Depthwise Separable Conv + MLAUNetDWBot3D
+# ──────────────────────────────────────────────────────────────────────────────
+
+class DWSepConv3d(nn.Module):
+    """
+    3D Depthwise Separable Conv：depthwise (groups=C_in) + pointwise (1×1×1)。
+
+    外部接口与 nn.Conv3d 完全相同，可直接替换。
+    参数量：k³·C_in + C_in·C_out  vs 标准 k³·C_in·C_out
+    C 足够大时参数显著减少，同等预算下支持更大卷积核（更大感受野）。
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups: int = 1,        # 忽略，depthwise 固定 groups=in_channels
+        bias: bool = False,
+        padding_mode: str = 'zeros',
+        device=None,
+        dtype=None,
+    ):
+        super().__init__()
+        factory = {}
+        if device is not None:
+            factory['device'] = device
+        if dtype is not None:
+            factory['dtype'] = dtype
+
+        self.dw = nn.Conv3d(
+            in_channels, in_channels, kernel_size,
+            stride=stride, padding=padding, dilation=dilation,
+            groups=in_channels, bias=False,
+            padding_mode=padding_mode, **factory,
+        )
+        self.pw = nn.Conv3d(in_channels, out_channels, 1, bias=bias, **factory)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.pw(self.dw(x))
+
+
+def _replace_encoder_conv3d_with_dw_sep(module: nn.Module, dw_kernel_size: int = 5) -> None:
+    """
+    递归把 module 内所有 nn.Conv3d 替换为更大核的 DWSepConv3d（in-place）。
+
+    替换规则：
+      - 1×1×1 卷积跳过（无空间混合，没有感受野可扩大）
+      - 各维度中原来 >= 3 的维度扩大到 dw_kernel_size；原来 == 1 的维度保持 1
+      - 新 padding 自动按 (k-1)//2 计算，保持 stride=1 时空间尺寸不变
+      - stride 保持原值（保留下采样语义）
+    """
+    for name, child in module.named_children():
+        if isinstance(child, nn.Conv3d):
+            orig_k = child.kernel_size          # tuple, e.g. (3,3,3) 或 (1,3,3)
+            if all(k == 1 for k in orig_k):     # 1×1×1：跳过
+                continue
+            # 只扩大空间维度（原来 >= 3 的维度），保留各向异性中的 1
+            new_k       = tuple(dw_kernel_size if k >= 3 else k for k in orig_k)
+            new_padding = tuple((k - 1) // 2    for k in new_k)
+            setattr(module, name, DWSepConv3d(
+                in_channels=child.in_channels,
+                out_channels=child.out_channels,
+                kernel_size=new_k,
+                stride=child.stride,
+                padding=new_padding,
+                dilation=child.dilation,
+                bias=child.bias is not None,
+                padding_mode=child.padding_mode,
+            ))
+        else:
+            _replace_encoder_conv3d_with_dw_sep(child, dw_kernel_size)
+
+
+class IBConvBlock3D(nn.Module):
+    """
+    倒置瓶颈卷积块（Inverted Bottleneck Conv Block，MedNeXt / ConvNeXt 思路）。
+
+    结构（stride 永远为 1）：
+        DW(k×k×k, groups=C_in) → InstanceNorm3d → PW_expand(1×1×1) → GELU
+        → PW_compress(1×1×1) → + residual
+
+    设计原则：
+      - 大核 ONLY 在 depthwise 空间混合，stride=1，cuDNN 可用 Winograd 加速
+      - pointwise 1×1×1 做通道变换，充分利用 Tensor Core
+      - stride=2 下采样在本块外由标准 ConvDropoutNormReLU 处理
+    """
+
+    def __init__(self, in_channels: int, out_channels: int,
+                 kernel_size: int = 7, exp_r: int = 4, channels_per_group: int = 1,
+                 use_checkpoint: bool = False):
+        super().__init__()
+        # channels_per_group=1 → depthwise (groups=C, M=1)
+        # channels_per_group=16 → grouped (groups=C/16, M=16, Tensor Core 可用)
+        groups = max(1, in_channels // channels_per_group)
+        self.dw   = nn.Conv3d(in_channels, in_channels, kernel_size,
+                              padding=kernel_size // 2, groups=groups, bias=False)
+        self.norm = nn.InstanceNorm3d(in_channels, affine=True)
+
+        mid = exp_r * min(in_channels, out_channels)
+        self.pw_up   = nn.Conv3d(in_channels, mid, 1, bias=False)
+        self.act     = nn.GELU()
+        self.pw_down = nn.Conv3d(mid, out_channels, 1, bias=False)
+
+        self.proj = (nn.Conv3d(in_channels, out_channels, 1, bias=False)
+                     if in_channels != out_channels else nn.Identity())
+        self.use_checkpoint = use_checkpoint
+
+    def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.proj(x)
+        x = self.norm(self.dw(x))
+        x = self.act(self.pw_up(x))
+        x = self.pw_down(x)
+        return x + residual
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.use_checkpoint:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_impl, x, use_reentrant=False
+            )
+        return self._forward_impl(x)
+
+
+def _replace_cdnr_with_ib(module: nn.Module,
+                           ib_kernel_size: int = 7,
+                           exp_r: int = 4,
+                           channels_per_group: int = 1,
+                           use_checkpoint: bool = False) -> None:
+    """
+    递归将所有 stride=1 的 ConvDropoutNormReLU 替换为 IBConvBlock3D。
+    stride=2（下采样）保持不变——大核步长卷积 cuDNN 无优化。
+    """
+    for name, child in list(module.named_children()):
+        if type(child).__name__ == 'ConvDropoutNormReLU':
+            conv = child.conv
+            if all(s == 1 for s in conv.stride):
+                setattr(module, name, IBConvBlock3D(
+                    in_channels=conv.in_channels,
+                    out_channels=conv.out_channels,
+                    kernel_size=ib_kernel_size,
+                    exp_r=exp_r,
+                    channels_per_group=channels_per_group,
+                    use_checkpoint=use_checkpoint,
+                ))
+            # stride=2: 保持原样
+        else:
+            _replace_cdnr_with_ib(child, ib_kernel_size, exp_r, channels_per_group, use_checkpoint)
+
+
+class MLAUNetIBBot3D(MLAUNetBot3D):
+    """
+    MLAUNetBot3D + 倒置瓶颈卷积块（Inverted Bottleneck，MedNeXt 架构思路）。
+
+    将 Encoder + Decoder 所有 stride=1 ConvDropoutNormReLU 替换为 IBConvBlock3D：
+        DW(k×k×k) → InstanceNorm3d → PW_expand(×exp_r) → GELU → PW_compress → + residual
+
+    stride=2 下采样保持标准 3×3×3 卷积不变。
+    MLA Bottleneck 不变。
+
+    与 MLAUNetDWBot3D（简单 DWSep 替换）的核心区别：
+      - 大核 ONLY 在 stride=1 depthwise，下采样不受影响
+      - expand→GELU→compress 增强非线性（类 ConvNeXt 设计）
+      - 每个块有独立 residual connection（等效于残差大核卷积）
+    """
+
+    def __init__(self, *args, ib_kernel_size: int = 7, exp_r: int = 4,
+                 channels_per_group: int = 1, use_checkpoint: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        _replace_cdnr_with_ib(self.encoder, ib_kernel_size, exp_r, channels_per_group, use_checkpoint)
+        _replace_cdnr_with_ib(self.decoder, ib_kernel_size, exp_r, channels_per_group, use_checkpoint)
+
+
+class DWSepUNet3D(PlainConvUNet):
+    """
+    PlainConvUNet + DWSepConv3d 替换（纯大核深度可分离卷积，无 MLA，无 MoE）。
+
+    将 Encoder + Decoder 所有 nn.Conv3d（含 stride=2 下采样）替换为 DWSepConv3d：
+        DW(k×k×k, groups=C) → PW(1×1×1)
+
+    1×1×1 卷积跳过；各向异性（某维度 k=1）保持不变。
+    用于独立消融"大核感受野"的贡献，不引入倒置瓶颈或非线性结构。
+    """
+
+    def __init__(self, *args, dw_kernel_size: int = 7, **kwargs):
+        super().__init__(*args, **kwargs)
+        _replace_encoder_conv3d_with_dw_sep(self.encoder, dw_kernel_size)
+        _replace_encoder_conv3d_with_dw_sep(self.decoder, dw_kernel_size)
+
+
+class IBConvUNet3D(PlainConvUNet):
+    """
+    PlainConvUNet + IBConvBlock3D（纯大核倒置瓶颈替换，无 MLA，无 MoE）。
+
+    将 Encoder + Decoder 所有 stride=1 ConvDropoutNormReLU 替换为 IBConvBlock3D：
+        DW(k×k×k, groups=C) → InstanceNorm3d → PW_expand(×exp_r) → GELU → PW_compress → + residual
+
+    stride=2 下采样保持标准 3×3×3 不变。
+    用于独立消融大核卷积的贡献，去除 MLA/MoE 的干扰。
+    """
+
+    def __init__(self, *args, ib_kernel_size: int = 7, exp_r: int = 4,
+                 channels_per_group: int = 1, use_checkpoint: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        _replace_cdnr_with_ib(self.encoder, ib_kernel_size, exp_r, channels_per_group, use_checkpoint)
+        _replace_cdnr_with_ib(self.decoder, ib_kernel_size, exp_r, channels_per_group, use_checkpoint)
+
+
+class MLAUNetDWBot3D(MLAUNetBot3D):
+    """
+    MLAUNetBot3D + 全网络大核 Depthwise Separable Conv（MedNeXt 思路）。
+
+    核心思想：
+      标准 Conv3d 参数量 = k³ · C_in · C_out
+      DW Sep Conv 参数量 = k³ · C_in  +  C_in · C_out    （消去 k³ 与 C_out 的耦合）
+
+      节省出的参数预算用来把 k 从 3 扩大到 7：
+        k=3 标准:  27  · C_in · C_out
+        k=7 DWSep: 343 · C_in + C_in · C_out  （C=128 时参数量仅约原来的 30%）
+
+      → 更大感受野，参数不增反减。
+
+    dw_kernel_size（默认 7）：depthwise 空间核大小。
+    replace_decoder（默认 True）：是否同时替换 Decoder（MedNeXt 全替换策略）。
+    MLA Bottleneck 保持标准卷积不变。
+    """
+
+    def __init__(self, *args, dw_kernel_size: int = 5, replace_decoder: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        _replace_encoder_conv3d_with_dw_sep(self.encoder, dw_kernel_size)
+        if replace_decoder:
+            _replace_encoder_conv3d_with_dw_sep(self.decoder, dw_kernel_size)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DWSepResBlock3D：DWSep(k=3) + 残差，仅用于 encoder
+# ──────────────────────────────────────────────────────────────────────────────
+
+class DWSepResBlock3D(nn.Module):
+    """
+    Encoder 卷积块：DWSep(k=3) + 残差连接。
+
+    结构（stride 永远为 1）：
+        DW(k×k×k, groups=C_in) → InstanceNorm3d → GELU
+        → PW(1×1×1, C_in→C_out) → + proj(x) → output
+
+    设计原则：
+      - k=3 保证与原 nnUNet plain conv 感受野一致，参数量降为 k³·C + C·C_out
+      - DWSep 节省出的容量用于 "多一层"（n_conv_per_stage +1）
+      - 每块内显式残差：稳定深层梯度，允许叠更多层
+      - stride=2 下采样在外部由原 ConvDropoutNormReLU 处理，不受影响
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3):
+        super().__init__()
+        pad = kernel_size // 2
+        self.dw   = nn.Conv3d(in_channels, in_channels, kernel_size,
+                              padding=pad, groups=in_channels, bias=False)
+        self.norm = nn.InstanceNorm3d(in_channels, affine=True)
+        self.act  = nn.GELU()
+        self.pw   = nn.Conv3d(in_channels, out_channels, 1, bias=False)
+        self.proj = (nn.Conv3d(in_channels, out_channels, 1, bias=False)
+                     if in_channels != out_channels else nn.Identity())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.proj(x)
+        x = self.act(self.norm(self.dw(x)))
+        return self.pw(x) + residual
+
+
+def _replace_encoder_cdnr_with_dwsep_res(module: nn.Module, kernel_size: int = 3) -> None:
+    """
+    递归将 module 内所有 stride=1 的 ConvDropoutNormReLU 替换为 DWSepResBlock3D。
+    stride=2（下采样）保持原样。仅对 encoder 调用，decoder 不传入。
+    """
+    for name, child in list(module.named_children()):
+        if type(child).__name__ == 'ConvDropoutNormReLU':
+            conv = child.conv
+            if all(s == 1 for s in conv.stride):
+                setattr(module, name, DWSepResBlock3D(
+                    conv.in_channels, conv.out_channels, kernel_size
+                ))
+        else:
+            _replace_encoder_cdnr_with_dwsep_res(child, kernel_size)
+
+
+class MLAUNetDWSepResBot3D(MLAUNetBot3D):
+    """
+    MLAUNetBot3D + DWSep(k=3)+残差 encoder + plain conv decoder + MLA 瓶颈。
+
+    改动范围：
+      - Encoder stride=1 块 → DWSepResBlock3D（DWSep k=3 + 残差）
+      - Decoder 保持 PlainConvUNet 原始 plain conv 不变
+      - MLA Bottleneck 不变
+
+    对比 MLAUNetIBBot3D（IBConvBlock3D k=7 全网络）：
+      - 卷积核更小（k=3 vs k=7）：感受野与原 nnUNet 一致，深度换感受野
+      - encoder/decoder 不对称：decoder 省参，把容量都留给 encoder 深度
+      - 残差同样开启，梯度流一致
+    """
+
+    def __init__(self, *args, dw_kernel_size: int = 3, **kwargs):
+        super().__init__(*args, **kwargs)
+        _replace_encoder_cdnr_with_dwsep_res(self.encoder, dw_kernel_size)

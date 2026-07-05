@@ -1,0 +1,101 @@
+\documentclass[10pt,a4paper]{ctexart}
+
+\usepackage[left=1.08cm,right=1.08cm,top=0.88cm,bottom=0.92cm]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{fontspec}
+\usepackage[hidelinks]{hyperref}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\linespread{1.00}
+
+\definecolor{heading}{HTML}{1F2937}
+\definecolor{rulegray}{HTML}{9CA3AF}
+\definecolor{textgray}{HTML}{374151}
+
+\titleformat{\section}
+  {\large\bfseries\color{heading}}
+  {}
+  {0pt}
+  {}
+  [\vspace{-2pt}{\color{rulegray}\titlerule[0.45pt]}]
+\titlespacing*{\section}{0pt}{5pt}{3pt}
+
+\setlist[itemize]{
+  leftmargin=1.25em,
+  itemsep=0.8pt,
+  topsep=1pt,
+  parsep=0pt,
+  partopsep=0pt
+}
+
+\newcommand{\entry}[4]{
+  \textbf{#1} \hfill #2\\
+  #3 \hfill #4
+}
+
+\newcommand{\role}[2]{
+  \textbf{#1} \hfill #2
+}
+
+\begin{document}
+\small
+
+\begin{center}
+  {\fontsize{20pt}{22pt}\selectfont \textbf{普孟玉}}\\[2pt]
+  19588939902 \quad | \quad 19588939902@163.com \quad | \quad 山东省济南市
+\end{center}
+
+\section{教育背景}
+\entry{山东大学}{2025.09--2028.07（预计）}{应用数学硕士｜数学学院}{}
+\vspace{2pt}
+\entry{山东大学}{2021.09--2025.07}{应用数学学士｜数学学院}{}
+
+\section{科研经历}
+\role{增强 CT 肝脏及肝肿瘤分割研究｜山东大学数学学院｜导师：包芳勋}{2025.09--至今}
+\begin{itemize}
+  \item 基于 nnU-Net v2 开展增强 CT 肝脏/肝肿瘤自动分割研究，重点处理小肿瘤漏检、无肿瘤病例误报、肿瘤形态不规则、肿瘤与肝实质对比度低等问题。
+  \item 扩展自定义 Trainer 与 Mixin 机制，实现大小分层过采样、Unified Focal Loss、Tversky Loss、无肿瘤 false-positive 惩罚、外部无肿瘤样本注入、两阶段 FP 抑制等实验策略。
+  \item 设计并实现 MLA-UNet、MLA-MoE、MedNeXt-MLA 等 3D 分割模型改造，将低秩注意力、MoE-FFN 与 MedNeXt 风格 3D 卷积块接入 nnU-Net 训练流程，增强瓶颈层全局上下文建模与跨域泛化能力。
+  \item 建立“训练-推理-报告-可视化-外部验证”闭环，自动生成 per-case Dice、GT/Pred/Diff 可视化和内部测试报告，并批量完成 IRCADb 外部验证与多模型排名汇总。
+  \item 内部测试最佳：MedNeXt\_SizeOV4 达到 Liver Dice 0.9545、Tumor Dice 0.7317、Overall 0.8431；IRCADb 外部最佳：MedNeXt\_MLA 达到 Overall 0.8079，较 Baseline 0.7727 明显提升。
+  \item 通过消融发现 MedNeXt 同域强但外部下降明显，MLA/MoE 族跨域更稳健，FPSafe 可降低同域误报但未带来稳定外部收益，据此形成论文主线与负结果消融。
+\end{itemize}
+
+\section{工程项目}
+\role{nnU-Net 医学影像分割实验平台二次开发}{}
+\begin{itemize}
+  \item 维护自定义代码包 \texttt{pumengyu/}，包含 \texttt{trainers}、\texttt{architectures}、\texttt{mixins}、\texttt{tools}、\texttt{ext\_val} 等模块，形成可复用的医学图像分割研究代码结构。
+  \item 通过组合式 Mixin 快速构建 Baseline、SizeOV、MLA、MoE、MedNeXt、SwinUNETR、nnFormer 等对照模型，减少重复代码并保持实验变量清晰。
+  \item 开发自动报告工具链，将 nnU-Net 原生 \texttt{summary.json} 转换为 \texttt{report\_custom.txt/json}，按肿瘤/无肿瘤、Dice 分段、FP 体积等维度输出分析，并生成错误可视化材料。
+  \item 编写内部测试、外部验证、缺失实验补跑、报告复算和多方法排名脚本，统一 checkpoint 加载、批量预测、IRCADb 验证和结果口径。
+\end{itemize}
+
+\role{4090 服务器与 AI 辅助研发环境维护}{}
+\begin{itemize}
+  \item 在 Ubuntu 24.04 / RTX 4090 远程服务器上维护深度学习开发环境，配置 nnU-Net 数据路径、实验结果目录、CUDA 设备选择、训练日志与 VSCode Remote SSH 工作流。
+  \item 编写 Mihomo/Clash Meta 代理手册与 shell 封装，明确端口、节点切换、缓存持久化、\texttt{.bashrc} 自动启动和故障诊断流程；将提示词、实验记录、架构设计和运维文档沉淀为 Markdown 知识库。
+\end{itemize}
+
+\section{技术技能}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\textbf{编程语言} & Python（熟练）、Bash/Shell、C++（基础） \\
+\textbf{深度学习框架} & PyTorch、nnU-Net v2、MONAI、batchgenerators \\
+\textbf{医学影像处理} & NIfTI、SimpleITK、3D CT 体数据处理、医学图像分割评估、ITK-SNAP 可视化辅助 \\
+\textbf{模型与算法} & U-Net、nnU-Net、MedNeXt、SwinUNETR、nnFormer、MLA、MoE、3D CNN、Transformer、损失函数设计、数据增强、交叉验证、外部验证、后处理 \\
+\textbf{实验工程} & 自定义 Trainer、Mixin 组合式开发、自动化报告、批量推理、错误 case 分析、消融实验设计、GPU 训练日志与崩溃诊断 \\
+\textbf{数学基础} & 线性代数、数值优化、概率统计、数学分析、分布距离与统计检验 \\
+\end{tabularx}
+
+\section{证书与其他}
+\begin{itemize}
+  \item \textbf{证书}：大学英语六级（CET-6）450 分；全国高中数学教师资格证；中国 C1 驾驶证
+  \item \textbf{研究兴趣}：医学图像分析、3D 医学影像分割、跨域泛化、面向临床影像的深度学习系统
+  \item \textbf{语言能力}：普通话（母语）、英语（读写良好）
+\end{itemize}
+
+\end{document}

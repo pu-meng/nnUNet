@@ -84,7 +84,7 @@ def fmt_n(n) -> str:
 
 # ── 推理 pipeline ─────────────────────────────────────────────────────────
 
-def run_predict(method: str, trainer: str, fold: int, gpu: int):
+def run_predict(method: str, trainer: str, fold: int, gpu: int, checkpoint: str = ""):
     """调用 nnUNetv2_predict 生成预测文件。"""
     out_dir = EXT_RESULT_ROOT / method / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +97,8 @@ def run_predict(method: str, trainer: str, fold: int, gpu: int):
         "-tr", trainer,
         "-f", str(fold),
     ]
+    if checkpoint:
+        cmd += ["-chk", checkpoint]
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     print(f"[推理] 执行: CUDA_VISIBLE_DEVICES={gpu} {' '.join(cmd)}")
@@ -372,7 +374,7 @@ def build_report(method: str, pred_dir: Path,
 # ── 主函数 ────────────────────────────────────────────────────────────────
 
 def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: int,
-        min_voxel: int):
+        min_voxel: int, checkpoint: str):
     method_dir = EXT_RESULT_ROOT / method
     pred_dir   = method_dir / "predictions"   # nii.gz 所在目录
     result_dir = method_dir                   # 报告 + viz 输出目录
@@ -382,7 +384,7 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     if predict:
         if not trainer:
             raise ValueError("--predict 需要同时指定 --trainer")
-        run_predict(method, trainer, fold, gpu)
+        run_predict(method, trainer, fold, gpu, checkpoint)
 
     if not pred_dir.is_dir():
         raise FileNotFoundError(f"预测目录不存在: {pred_dir}")
@@ -471,8 +473,11 @@ def main():
                    help="fold 编号（默认 0）")
     p.add_argument("--gpu",       type=int, default=1,
                    help="CUDA_VISIBLE_DEVICES（默认 1）")
+    p.add_argument("--checkpoint", default="",
+                   help="nnUNet checkpoint 文件名，如 checkpoint_best.pth；默认使用 nnUNetv2_predict 默认值")
     args = p.parse_args()
-    run(args.method, args.no_vis, args.predict, args.trainer, args.fold, args.gpu, args.min_voxel)
+    run(args.method, args.no_vis, args.predict, args.trainer, args.fold, args.gpu,
+        args.min_voxel, args.checkpoint)
 
 
 if __name__ == "__main__":

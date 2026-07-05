@@ -913,6 +913,73 @@ class NoTumorFPPenaltyMixin:
         return _NoTumorFPWrapper(base, tumor_cls, self.NTFP_LAMBDA)
 
 
+class _TopKNoTumorFPWrapper(torch.nn.Module):
+    """
+    无肿瘤误报 Top-K 惩罚 loss 包装器。
+
+    与 _NoTumorFPWrapper 的区别：
+      - mean(p_tumor) 容易被大片背景稀释；
+      - Top-K 只惩罚无肿瘤 sample 中最高置信度的一小部分 tumor 概率，
+        更贴近临床上需要压制的局部高置信假阳性。
+
+    有肿瘤 sample 的 loss 路径不受影响。
+    """
+
+    def __init__(self, base_loss, tumor_cls_idx: int, penalty_lambda: float, topk_percent: float):
+        super().__init__()
+        self.base_loss = base_loss
+        self.tumor_idx = tumor_cls_idx
+        self.penalty_lambda = penalty_lambda
+        self.topk_percent = topk_percent
+
+    def forward(self, net_output, target):
+        base = self.base_loss(net_output, target)
+
+        logits = net_output[0] if isinstance(net_output, list) else net_output
+        tgt = target[0] if isinstance(target, list) else target
+
+        probs = torch.softmax(logits.float(), dim=1)
+        p_tumor = probs[:, self.tumor_idx]  # (B,Z,Y,X)
+
+        has_tumor = (tgt[:, 0].long() == self.tumor_idx).any(dim=(1, 2, 3))
+        no_tumor_idx = (~has_tumor).nonzero(as_tuple=True)[0]
+
+        if no_tumor_idx.numel() == 0:
+            return base
+
+        no_tumor_probs = p_tumor[no_tumor_idx].flatten(start_dim=1)
+        n_vox = no_tumor_probs.shape[1]
+        k = max(1, int(round(n_vox * self.topk_percent)))
+        k = min(k, n_vox)
+        topk_vals = torch.topk(no_tumor_probs, k=k, dim=1, largest=True, sorted=False).values
+        penalty = topk_vals.mean()
+        return base + self.penalty_lambda * penalty
+
+
+class TopKNoTumorFPPenaltyMixin:
+    """
+    FP-Safe 的第一阶段：无肿瘤 sample 的 Top-K 误报惩罚。
+
+    可覆盖的类变量：
+        TKN_TUMOR_FP_LAMBDA   惩罚权重，默认 1.0
+        TKN_TOPK_PERCENT      取无肿瘤 patch 中最高 tumor 概率的比例，默认 1%
+    """
+
+    TKN_TUMOR_FP_LAMBDA: float = 1.0
+    TKN_TOPK_PERCENT: float = 0.01
+
+    def _build_loss(self):
+        base = super()._build_loss()  # type: ignore
+        tumor_cls = self.label_manager.foreground_labels[-1]  # type: ignore
+        self.print_to_log_file(  # type: ignore
+            f"[TopKNoTumorFP] enabled: lambda={self.TKN_TUMOR_FP_LAMBDA}, "
+            f"topk_percent={self.TKN_TOPK_PERCENT}, tumor_cls={tumor_cls}"
+        )
+        return _TopKNoTumorFPWrapper(
+            base, tumor_cls, self.TKN_TUMOR_FP_LAMBDA, self.TKN_TOPK_PERCENT
+        )
+
+
 class BboxJitterMixin:
     """
     Stage-aware Crop Jitter：弥合两阶段流水线 train-test distribution gap。
@@ -1095,43 +1162,43 @@ def _gen_viz_pngs_and_cleanup(
             else:
                 has_zoom = False
 
-            fig = plt.figure(figsize=(22, 6))
-            gs  = fig.add_gridspec(1, 4, width_ratios=[0.22, 1, 1, 0.7], wspace=0.05)
+            fig = plt.figure(figsize=(16, 5))
+            gs  = fig.add_gridspec(1, 3, width_ratios=[1, 1, 0.6], wspace=0.02)
 
-            ax_l = fig.add_subplot(gs[0])
-            ax_l.axis("off")
-            _leg_kw = dict(prop=_cn_prop, title_fontproperties=_cn_prop) if _cn_prop else dict(fontsize=11)
-            ax_l.legend(
-                handles=legend_entries, loc="center",
-                frameon=True, framealpha=0.9, edgecolor="#888",
-                title="颜色说明",
-                handlelength=2, handleheight=1.6, borderpad=1.2, labelspacing=1.2,
+            _fp = dict(fontproperties=_cn_prop) if _cn_prop else {}
+            _leg_kw = dict(prop=_cn_prop, title_fontproperties=_cn_prop) if _cn_prop else dict(fontsize=8)
+
+            ax_ct = fig.add_subplot(gs[0])
+            ax_ct.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
+            ax_ct.set_title(f"原始CT  z={z}  GT={gt_vox}体素", fontsize=8, **_fp)
+            ax_ct.axis("off")
+            # 图例嵌入原始CT左上角
+            ax_ct.legend(
+                handles=legend_entries, loc="upper left",
+                frameon=True, framealpha=0.75, edgecolor="#888",
+                title="颜色说明", fontsize=7,
+                handlelength=1.2, handleheight=1.2, borderpad=0.6, labelspacing=0.5,
                 **_leg_kw,
             )
 
-            ax_ct = fig.add_subplot(gs[1])
-            ax_ct.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
-            ax_ct.set_title(f"原始CT  z={z}  GT={gt_vox}体素", fontsize=8,
-                            fontproperties=_cn_prop)
-            ax_ct.axis("off")
-
-            ax_ov = fig.add_subplot(gs[2])
+            ax_ov = fig.add_subplot(gs[1])
             ax_ov.imshow(ct_sl, cmap="gray", vmin=-150, vmax=250, origin="lower")
             ax_ov.imshow(overlay_pred, origin="lower")
             ax_ov.set_title(
                 f"预测结果  z={z}   TP={tp_mask.sum()}  FP={fp_mask.sum()}  FN={fn_mask.sum()}",
-                fontsize=8, fontproperties=_cn_prop,
+                fontsize=8, **_fp,
             )
             ax_ov.axis("off")
 
-            ax_zm = fig.add_subplot(gs[3])
+            ax_zm = fig.add_subplot(gs[2])
             if has_zoom:
                 ax_zm.imshow(ct_zoom, cmap="gray", vmin=-150, vmax=250, origin="lower")
                 ax_zm.imshow(ov_zoom, origin="lower")
-                ax_zm.set_title(f"病灶放大 (±{_pad}px)", fontsize=8, fontproperties=_cn_prop)
+                ax_zm.set_title(f"病灶放大 (±{_pad}px)", fontsize=8, **_fp)
             ax_zm.axis("off")
 
-            plt.savefig(case_dir / f"{case}_z{z}_full.png", dpi=150, bbox_inches="tight")
+            plt.savefig(case_dir / f"{case}_z{z}_full.png", dpi=150,
+                        bbox_inches="tight", pad_inches=0.05)
             plt.close()
             total_png += 1
 
@@ -1162,6 +1229,23 @@ class AutoInternalTestMixin:
     """
 
     SPLIT_INFO_FILENAME = "split_info_712.json"
+    AUTO_EXTERNAL_VAL = True
+    AUTO_EXTERNAL_NO_VIS = False
+    AUTO_EXTERNAL_FORCE = False
+    AUTO_EXTERNAL_METHOD_NAME = None
+
+    AUTO_EXTERNAL_METHOD_ALIASES = {
+        "nnUNetTrainer_FPSafe": "FPSafe",
+        "nnUNetTrainer_SizeOV4_FPSafe": "SizeOV4_FPSafe",
+        "nnUNetTrainer_MedNeXt_FPSafe": "MedNeXt_FPSafe",
+        "nnUNetTrainer_MedNeXt_MLA_FPSafe": "MedNeXt_MLA_FPSafe",
+        "nnUNetTrainer_MLAUNet_MoE": "MoE",
+        "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2": "MoE_SizeOV2",
+        "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4": "MoE_SizeOV4",
+        "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5": "MoE_SizeOV5",
+        "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV6": "MoE_SizeOV6",
+        "nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4": "MLAUNet_MoE_IB7_SizeOV4",
+    }
 
     def perform_actual_validation(self, save_probabilities: bool = False):
         super().perform_actual_validation(save_probabilities)  # type: ignore
@@ -1173,6 +1257,112 @@ class AutoInternalTestMixin:
             self.print_to_log_file(  # type: ignore
                 f"[InternalTest] 推理失败: {e}", also_print_to_console=True
             )
+            return
+
+        try:
+            self._run_external_validation_after_internal_test()
+        except Exception as e:
+            self.print_to_log_file(  # type: ignore
+                f"[ExternalVal] 自动外部验证失败: {e}", also_print_to_console=True
+            )
+
+    def _auto_external_enabled(self) -> bool:
+        value = _os.environ.get("PMY_AUTO_EXTERNAL_VAL", "")
+        if value.lower() in {"0", "false", "no", "off"}:
+            return False
+        return bool(getattr(self, "AUTO_EXTERNAL_VAL", True))
+
+    def _auto_external_no_vis(self) -> bool:
+        value = _os.environ.get("PMY_AUTO_EXTERNAL_NO_VIS", "")
+        if value.lower() in {"1", "true", "yes", "on"}:
+            return True
+        return bool(getattr(self, "AUTO_EXTERNAL_NO_VIS", False))
+
+    def _auto_external_force(self) -> bool:
+        value = _os.environ.get("PMY_AUTO_EXTERNAL_FORCE", "")
+        if value.lower() in {"1", "true", "yes", "on"}:
+            return True
+        return bool(getattr(self, "AUTO_EXTERNAL_FORCE", False))
+
+    def _auto_external_gpu(self) -> int:
+        value = _os.environ.get("PMY_AUTO_EXTERNAL_GPU", "")
+        if value:
+            return int(value)
+        visible = _os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")[0].strip()
+        return int(visible) if visible.isdigit() else 0
+
+    def _auto_external_method_name(self) -> str:
+        explicit = getattr(self, "AUTO_EXTERNAL_METHOD_NAME", None)
+        if explicit:
+            return str(explicit)
+
+        trainer_name = self.__class__.__name__
+        aliases = getattr(self, "AUTO_EXTERNAL_METHOD_ALIASES", {})
+        if trainer_name in aliases:
+            return aliases[trainer_name]
+
+        method = trainer_name.removeprefix("nnUNetTrainer_")
+        return method.replace("SizeOversample", "SizeOV")
+
+    def _run_external_validation_after_internal_test(self):
+        if not self._auto_external_enabled():
+            self.print_to_log_file("[ExternalVal] PMY_AUTO_EXTERNAL_VAL=0，跳过自动外部验证")  # type: ignore
+            return
+
+        import subprocess
+
+        method = self._auto_external_method_name()
+        result_dir = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb") / method
+        report_path = result_dir / "report_custom.txt"
+
+        if report_path.exists() and not self._auto_external_force():
+            self.print_to_log_file(  # type: ignore
+                f"[ExternalVal] 已存在 {report_path}，跳过。设置 PMY_AUTO_EXTERNAL_FORCE=1 可重跑。",
+                also_print_to_console=True,
+            )
+            return
+
+        repo_root = Path("/home/PuMengYu/nnUNet")
+        report_py = repo_root / "pumengyu" / "ext_val" / "03_gen_method_report.py"
+        trainer_name = self.__class__.__name__
+        gpu = self._auto_external_gpu()
+
+        cmd = [
+            "python", str(report_py),
+            "--method", method,
+            "--predict",
+            "--trainer", trainer_name,
+            "--fold", str(getattr(self, "fold", 0)),
+            "--gpu", str(gpu),
+            "--checkpoint", "checkpoint_final.pth",
+        ]
+        if self._auto_external_no_vis():
+            cmd.append("--no_vis")
+
+        env = _os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+
+        self.print_to_log_file(  # type: ignore
+            f"[ExternalVal] 内部测试完成，开始自动 IRCADb 外部验证: {method}",
+            also_print_to_console=True,
+        )
+        self.print_to_log_file(f"[ExternalVal] cmd: CUDA_VISIBLE_DEVICES={gpu} {' '.join(cmd)}")  # type: ignore
+
+        try:
+            self.network.to("cpu")  # type: ignore
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            self.print_to_log_file("[ExternalVal] 已释放训练网络显存，准备启动外部验证子进程")  # type: ignore
+        except Exception as e:
+            self.print_to_log_file(f"[ExternalVal] 释放显存时出现警告: {e}")  # type: ignore
+
+        subprocess.run(cmd, cwd=str(repo_root), env=env, check=True)
+
+        self.print_to_log_file(  # type: ignore
+            f"[ExternalVal] 完成！报告已写入 {report_path}",
+            also_print_to_console=True,
+        )
 
     def _run_internal_test_prediction(self, save_probabilities: bool = False):
         import json
