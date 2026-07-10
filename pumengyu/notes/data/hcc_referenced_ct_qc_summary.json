@@ -1,0 +1,26 @@
+{
+  "num_cases": 101,
+  "status_counts": {
+    "ok": 99,
+    "review": 2
+  },
+  "reason_counts": {
+    "tumor_liver_ratio_gt_1.5": 2
+  },
+  "review_cases": [
+    {
+      "case_id": "HCC_065",
+      "reason": "tumor_liver_ratio_gt_1.5",
+      "liver_voxels": 799757,
+      "tumor_voxels": 2453593,
+      "tumor_liver_ratio": 3.067923
+    },
+    {
+      "case_id": "HCC_075",
+      "reason": "tumor_liver_ratio_gt_1.5",
+      "liver_voxels": 956686,
+      "tumor_voxels": 1450841,
+      "tumor_liver_ratio": 1.516528
+    }
+  ]
+}

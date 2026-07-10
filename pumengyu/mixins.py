@@ -57,6 +57,117 @@ import blosc2
 from scipy.ndimage import label as cc_label
 from batchgenerators.utilities.file_and_folder_operations import join, load_pickle
 
+
+class _RuntimeMixedDataset:
+    """
+    Runtime-only dataset combiner. It never writes or rewrites nnUNet dataset files.
+    """
+
+    def __init__(self, primary_dataset, extra_dataset, primary_prefix: str, extra_prefix: str,
+                 extra_channel_map: str, target_channels: int, extra_repeat: int = 1):
+        self.primary_dataset = primary_dataset
+        self.extra_dataset = extra_dataset
+        self.primary_prefix = primary_prefix
+        self.extra_prefix = extra_prefix
+        self.extra_channel_map = extra_channel_map
+        self.target_channels = int(target_channels)
+
+        self.primary_identifiers = [f"{primary_prefix}:{k}" for k in primary_dataset.identifiers]
+        extra_ids = [f"{extra_prefix}:{k}" for k in extra_dataset.identifiers]
+        self.extra_identifiers = extra_ids * max(1, int(extra_repeat))
+        self.identifiers = self.primary_identifiers + self.extra_identifiers
+
+    def load_case(self, identifier):
+        prefix, key = identifier.split(":", 1)
+        if prefix == self.primary_prefix:
+            return self.primary_dataset.load_case(key)
+        if prefix == self.extra_prefix:
+            data, seg, seg_prev, properties = self.extra_dataset.load_case(key)
+            return self._adapt_extra_channels(data), seg, seg_prev, properties
+        raise KeyError(f"Unknown mixed dataset prefix: {prefix}")
+
+    def _adapt_extra_channels(self, data):
+        data_np = np.asarray(data)
+        channels = data_np.shape[0]
+        if channels == self.target_channels:
+            return data_np
+        if channels != 1:
+            raise ValueError(
+                f"Only single-channel extra data can be adapted, got {channels} channels"
+            )
+        if self.extra_channel_map == "msd_repeat":
+            return np.repeat(data_np, self.target_channels, axis=0)
+        if self.extra_channel_map == "msd_zero_fill":
+            out = np.zeros((self.target_channels, *data_np.shape[1:]), dtype=data_np.dtype)
+            out[0] = data_np[0]
+            return out
+        raise ValueError(f"Unsupported MIX_HCC_CHANNEL_MAP={self.extra_channel_map!r}")
+
+    def __getitem__(self, identifier):
+        return self.load_case(identifier)
+
+
+class HCCMixTrainingMixin:
+    """
+    Runtime MSD + HCC training mixin.
+
+    第一版以 Dataset013_HCCMultiPhase 为主数据集运行：
+        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MSDHCCMix
+
+    它只在训练 dataloader 层追加 Dataset003_Liver；验证集仍保持主数据集 split。
+    """
+
+    MIX_HCC_ENABLE: bool = True
+    MIX_HCC_PRIMARY_DATASET: str = "Dataset013_HCCMultiPhase"
+    MIX_MSD_DATASET: str = "Dataset003_Liver"
+    MIX_MSD_RATIO: float = 1.0
+    MIX_HCC_CHANNEL_MAP: str = "msd_repeat"
+
+    def get_tr_and_val_datasets(self):
+        dataset_tr, dataset_val = super().get_tr_and_val_datasets()  # type: ignore
+        if not self.MIX_HCC_ENABLE:
+            self.print_to_log_file("[HCCMix] disabled; using primary dataset only")  # type: ignore
+            return dataset_tr, dataset_val
+
+        primary_name = self.plans_manager.dataset_name  # type: ignore
+        if primary_name != self.MIX_HCC_PRIMARY_DATASET:
+            raise RuntimeError(
+                f"HCCMixTrainingMixin expects -d {self.MIX_HCC_PRIMARY_DATASET}; got {primary_name}. "
+                "Use MSDOnly trainer for pure MSD, or run the mixed trainer with Dataset013."
+            )
+        if int(self.num_input_channels) < 2:  # type: ignore[arg-type]
+            raise RuntimeError(
+                "HCCMixTrainingMixin requires a multi-channel primary dataset so MSD can be adapted upward."
+            )
+
+        from nnunetv2.training.dataloading.nnunet_dataset import infer_dataset_class
+
+        msd_folder = join(
+            nnUNet_preprocessed,
+            self.MIX_MSD_DATASET,
+            self.configuration_manager.data_identifier,  # type: ignore
+        )
+        msd_cls = infer_dataset_class(msd_folder)
+        msd_dataset = msd_cls(msd_folder)
+        extra_repeat = max(1, round(len(dataset_tr.identifiers) * self.MIX_MSD_RATIO / max(1, len(msd_dataset.identifiers))))
+
+        mixed_tr = _RuntimeMixedDataset(
+            dataset_tr,
+            msd_dataset,
+            primary_prefix="hcc",
+            extra_prefix="msd",
+            extra_channel_map=self.MIX_HCC_CHANNEL_MAP,
+            target_channels=int(self.num_input_channels),  # type: ignore[arg-type]
+            extra_repeat=extra_repeat,
+        )
+        self.print_to_log_file(  # type: ignore
+            f"[HCCMix] train primary={primary_name} n={len(dataset_tr.identifiers)}, "
+            f"extra={self.MIX_MSD_DATASET} n={len(msd_dataset.identifiers)} repeat={extra_repeat}, "
+            f"mixed identifiers={len(mixed_tr.identifiers)}, val remains primary n={len(dataset_val.identifiers)}, "
+            f"channel_map={self.MIX_HCC_CHANNEL_MAP}"
+        )
+        return mixed_tr, dataset_val
+
 # ------------------------------------------------------------------ #
 # UnifiedFocalLoss 辅助：懒加载官方库，避免启动时强依赖               #
 # ------------------------------------------------------------------ #
@@ -980,6 +1091,106 @@ class TopKNoTumorFPPenaltyMixin:
         )
 
 
+class _TopKLiverMarginNoTumorFPWrapper(torch.nn.Module):
+    """
+    Liver-masked margin FP-Safe loss wrapper.
+
+    For samples whose current patch contains no tumor voxels, this only looks at
+    tumor probabilities inside the annotated liver region, takes the highest
+    top-k fraction, and penalizes only values above a margin. Compared with the
+    original Top-K FP penalty, this avoids using the entire patch background as
+    the suppression target and avoids pushing already-low tumor probabilities
+    toward zero indefinitely.
+    """
+
+    def __init__(
+        self,
+        base_loss,
+        liver_cls_idx: int,
+        tumor_cls_idx: int,
+        penalty_lambda: float,
+        topk_percent: float,
+        margin: float,
+    ):
+        super().__init__()
+        self.base_loss = base_loss
+        self.liver_idx = liver_cls_idx
+        self.tumor_idx = tumor_cls_idx
+        self.penalty_lambda = penalty_lambda
+        self.topk_percent = topk_percent
+        self.margin = margin
+
+    def forward(self, net_output, target):
+        base = self.base_loss(net_output, target)
+
+        logits = net_output[0] if isinstance(net_output, list) else net_output
+        tgt = target[0] if isinstance(target, list) else target
+
+        probs = torch.softmax(logits.float(), dim=1)
+        p_tumor = probs[:, self.tumor_idx]  # (B,Z,Y,X)
+        labels = tgt[:, 0].long()
+
+        has_tumor = (labels == self.tumor_idx).any(dim=(1, 2, 3))
+        no_tumor_idx = (~has_tumor).nonzero(as_tuple=True)[0]
+
+        if no_tumor_idx.numel() == 0:
+            return base
+
+        penalty_terms = []
+        for sample_idx in no_tumor_idx:
+            organ_mask = (labels[sample_idx] == self.liver_idx) | (labels[sample_idx] == self.tumor_idx)
+            if not organ_mask.any():
+                continue
+
+            liver_probs = p_tumor[sample_idx][organ_mask]
+            n_vox = liver_probs.numel()
+            k = max(1, int(round(n_vox * self.topk_percent)))
+            k = min(k, n_vox)
+
+            topk_vals = torch.topk(liver_probs, k=k, largest=True, sorted=False).values
+            penalty_terms.append(torch.relu(topk_vals - self.margin).mean())
+
+        if len(penalty_terms) == 0:
+            return base
+
+        penalty = torch.stack(penalty_terms).mean()
+        return base + self.penalty_lambda * penalty
+
+
+class TopKLiverMarginNoTumorFPPenaltyMixin:
+    """
+    FP-Safe variant: liver-masked Top-K margin penalty for no-tumor patches.
+
+    可覆盖的类变量：
+        TKL_TUMOR_FP_LAMBDA   惩罚权重，默认 1.0
+        TKL_TOPK_PERCENT      取肝脏区域内最高 tumor 概率的比例，默认 1%
+        TKL_MARGIN            只惩罚超过该概率阈值的高置信 FP，默认 0.10
+    """
+
+    TKL_TUMOR_FP_LAMBDA: float = 1.0
+    TKL_TOPK_PERCENT: float = 0.01
+    TKL_MARGIN: float = 0.10
+
+    def _build_loss(self):
+        base = super()._build_loss()  # type: ignore
+        labels = list(self.label_manager.foreground_labels)  # type: ignore
+        liver_cls = labels[0]
+        tumor_cls = labels[-1]
+        self.print_to_log_file(  # type: ignore
+            f"[TopKLiverMarginNoTumorFP] enabled: lambda={self.TKL_TUMOR_FP_LAMBDA}, "
+            f"topk_percent={self.TKL_TOPK_PERCENT}, margin={self.TKL_MARGIN}, "
+            f"liver_cls={liver_cls}, tumor_cls={tumor_cls}"
+        )
+        return _TopKLiverMarginNoTumorFPWrapper(
+            base,
+            liver_cls,
+            tumor_cls,
+            self.TKL_TUMOR_FP_LAMBDA,
+            self.TKL_TOPK_PERCENT,
+            self.TKL_MARGIN,
+        )
+
+
 class BboxJitterMixin:
     """
     Stage-aware Crop Jitter：弥合两阶段流水线 train-test distribution gap。
@@ -1325,6 +1536,7 @@ class AutoInternalTestMixin:
         repo_root = Path("/home/PuMengYu/nnUNet")
         report_py = repo_root / "pumengyu" / "ext_val" / "03_gen_method_report.py"
         trainer_name = self.__class__.__name__
+        dataset_name = self.plans_manager.dataset_name  # type: ignore
         gpu = self._auto_external_gpu()
 
         cmd = [
@@ -1332,6 +1544,7 @@ class AutoInternalTestMixin:
             "--method", method,
             "--predict",
             "--trainer", trainer_name,
+            "--dataset", dataset_name,
             "--fold", str(getattr(self, "fold", 0)),
             "--gpu", str(gpu),
             "--checkpoint", "checkpoint_final.pth",

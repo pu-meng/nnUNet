@@ -8,10 +8,12 @@ from pumengyu.mixins import (
     SizeStratifiedOversampleMixin,
     UnifiedFocalLossMixin, TverskyLossMixin, AutoReportMixin, AutoInternalTestMixin,
     NoTumorFPPenaltyMixin, TopKNoTumorFPPenaltyMixin,
+    TopKLiverMarginNoTumorFPPenaltyMixin,
     ExternalNoTumorMixin,
     TumorOnlyTrainMixin,
     NoMirrorMixin,
     Stage2FPSupMixin,
+    HCCMixTrainingMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
@@ -1468,6 +1470,9 @@ class nnUNetTrainer_MedNeXt_SizeOV4(
     def _do_i_compile(self):
         return False
 
+    def _do_i_compile(self):
+        return False
+
 
 class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
     """
@@ -1488,6 +1493,15 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
     MLA_COMPRESSION_RATIO: int = 4
     MLA_MLP_RATIO:         int = 4
 
+    @staticmethod
+    def _deep_supervision_scales_from_configuration(configuration_manager: ConfigurationManager):
+        cumulative = [1, 1, 1]
+        scales = []
+        for stride in configuration_manager.pool_op_kernel_sizes:
+            cumulative = [c * int(s) for c, s in zip(cumulative, stride)]
+            scales.append([1 / c for c in cumulative])
+        return scales[:-1]
+
     @classmethod
     def build_network_architecture(
         cls,
@@ -1505,6 +1519,7 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
             mla_num_blocks=cls.MLA_NUM_BLOCKS,
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
         )
 
     def set_deep_supervision_enabled(self, enabled: bool):
@@ -1513,6 +1528,65 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod
         mod.do_ds = enabled
+
+    def _do_i_compile(self):
+        return False
+
+
+class nnUNetTrainer_MedNeXt_MLA_MSDOnly(nnUNetTrainer_MedNeXt_MLA):
+    """
+    MedNeXt-L + MLA，纯 MSD/LiTS 入口。
+
+    数据仍由 nnUNet 的 `-d Dataset003_Liver` 决定；此类只用于隔离实验命名，
+    避免和 HCC-only / mixed 结果目录混淆。
+    """
+
+
+class nnUNetTrainer_MedNeXt_MLA_HCCOnly(nnUNetTrainer_MedNeXt_MLA):
+    """
+    Legacy: MedNeXt-L + MLA，纯 HCC 多期 CT 入口。
+
+    数据仍由 nnUNet 的 `-d Dataset013_HCCMultiPhase` 决定；2 通道输入来自
+    Dataset013 的 dataset.json 和 plans，不在 Trainer 内硬编码。
+    """
+
+
+class nnUNetTrainer_MedNeXt_MLA_HCCRefOnly(nnUNetTrainer_MedNeXt_MLA):
+    """
+    MedNeXt-L + MLA，纯 HCC referenced-CT 单通道入口。
+
+    数据由 `-d 13` 选择的 Dataset013_HCCReferencedCT 决定：
+        image = DICOM-SEG 明确引用的 CT series
+        label = DICOM-SEG 转换的 0/1/2 标签
+
+    这是 HCC 重建后的第一优先级 sanity trainer。它只改变结果目录命名，
+    不引入 MSD 混合、PRE/FU CT、多通道适配或额外采样策略。
+
+    用法：
+        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_HCCRefOnly
+    """
+
+
+class nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020(nnUNetTrainer_MedNeXt_MLA_HCCRefOnly):
+    """
+    MedNeXt-L + MLA，纯 HCC referenced-CT 单通道 70/10/21 固定划分入口。
+
+    该类只用于隔离正式 HCC held-out 实验的结果目录。数据划分仍由
+    Dataset013_HCCReferencedCT 的 splits_final.json 决定，其中 test cases
+    记录在 split_info_701020_from_fold0.json，不写入 nnU-Net train/val split。
+
+    用法：
+        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020
+    """
+
+
+class nnUNetTrainer_MedNeXt_MLA_MSDHCCMix(HCCMixTrainingMixin, nnUNetTrainer_MedNeXt_MLA):
+    """
+    MedNeXt-L + MLA，Dataset013_HCCMultiPhase 主训练集 + Dataset003_Liver 运行时混合。
+
+    用法：`nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MSDHCCMix`。
+    验证集保持 Dataset013 的 val split，MSD 只追加到训练 dataloader。
+    """
 
 
 class nnUNetTrainer_MedNeXt_MLA_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt_MLA):
@@ -1532,6 +1606,25 @@ class nnUNetTrainer_MedNeXt_MLA_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_
     """
     TKN_TUMOR_FP_LAMBDA: float = 1.0
     TKN_TOPK_PERCENT: float = 0.01
+
+
+class nnUNetTrainer_MedNeXt_MLA_LiverMarginFPSafe(
+    TopKLiverMarginNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt_MLA
+):
+    """
+    MedNeXt-L + MLA Bottleneck + liver-masked margin FP-Safe。
+
+    相比 nnUNetTrainer_MedNeXt_MLA_FPSafe：
+      - 只在 no-tumor patch 的 GT liver 区域内取 tumor probability top-k；
+      - 只惩罚超过 margin 的高置信假阳性，不继续压低低置信 tumor response；
+      - 避免全 patch 背景主导 FP-safe loss，减轻对外部真实肿瘤响应的过度抑制。
+
+    结果目录：
+      nnUNetTrainer_MedNeXt_MLA_LiverMarginFPSafe__nnUNetPlans__3d_fullres/
+    """
+    TKL_TUMOR_FP_LAMBDA: float = 1.0
+    TKL_TOPK_PERCENT: float = 0.01
+    TKL_MARGIN: float = 0.10
 
 
 class nnUNetTrainer_MedNeXt_MLA_SizeOV4(
@@ -2013,3 +2106,27 @@ class nnUNetTrainer_DeepDWIBMedConfig(AutoInternalTestMixin, AutoReportMixin, nn
 
     def _do_i_compile(self):
         return False
+
+
+class nnUNetTrainer_DeepDWIBMedConfig_MSDOnly(nnUNetTrainer_DeepDWIBMedConfig):
+    """
+    独立 DW+IB MedNeXt 配置复现，纯 MSD/LiTS 入口。
+
+    只改变结果目录命名，不改变数据加载或网络结构。
+    """
+
+
+class nnUNetTrainer_DeepDWIBMedConfig_HCCOnly(nnUNetTrainer_DeepDWIBMedConfig):
+    """
+    独立 DW+IB MedNeXt 配置复现，纯 HCC 多期 CT 入口。
+
+    2 通道输入由 Dataset013 的 plans 自动传入 build_network_architecture。
+    """
+
+
+class nnUNetTrainer_DeepDWIBMedConfig_MSDHCCMix(HCCMixTrainingMixin, nnUNetTrainer_DeepDWIBMedConfig):
+    """
+    独立 DW+IB MedNeXt 配置复现，Dataset013 主训练集 + Dataset003 运行时混合。
+
+    用法：`nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_DeepDWIBMedConfig_MSDHCCMix`。
+    """

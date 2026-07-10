@@ -43,6 +43,7 @@ INFO_FILE     = EXT_VAL_ROOT / "case_info.json"
 
 # 外部验证结果统一写入 results_v2/ExternalVal_IRCADb/，与内部实验并列
 EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb")
+NNUNET_RESULTS = Path("/home/PuMengYu/nnUNet_workspace/results_v2")
 
 TUMOR_CLS = 2   # label 1=liver, 2=tumor（同 Dataset003）
 LIVER_CLS = 1
@@ -84,15 +85,66 @@ def fmt_n(n) -> str:
 
 # ── 推理 pipeline ─────────────────────────────────────────────────────────
 
-def run_predict(method: str, trainer: str, fold: int, gpu: int, checkpoint: str = ""):
+def _resolve_dataset_name(dataset: str) -> str:
+    """Accept either nnU-Net ids like 003/13 or full DatasetXXX names."""
+    if dataset.startswith("Dataset"):
+        return dataset
+    dataset_id = int(dataset)
+    matches = sorted(NNUNET_RESULTS.glob(f"Dataset{dataset_id:03d}_*"))
+    if not matches:
+        raise FileNotFoundError(f"找不到 Dataset{dataset_id:03d}_* 结果目录: {NNUNET_RESULTS}")
+    if len(matches) > 1:
+        raise RuntimeError(f"Dataset id {dataset_id:03d} 匹配到多个目录: {matches}")
+    return matches[0].name
+
+
+def _dataset_id_arg(dataset: str) -> str:
+    if dataset.startswith("Dataset"):
+        return str(int(dataset.removeprefix("Dataset")[:3]))
+    return str(int(dataset))
+
+
+def _expected_channels(dataset: str, trainer: str) -> int:
+    dataset_name = _resolve_dataset_name(dataset)
+    dataset_json = NNUNET_RESULTS / dataset_name / f"{trainer}__nnUNetPlans__3d_fullres" / "dataset.json"
+    if not dataset_json.exists():
+        raise FileNotFoundError(f"模型目录缺 dataset.json: {dataset_json}")
+    data = json.loads(dataset_json.read_text(encoding="utf-8"))
+    return len(data.get("channel_names", {"0": "CT"}))
+
+
+def _prepare_predict_input(method: str, dataset: str, trainer: str) -> Path:
+    channels = _expected_channels(dataset, trainer)
+    if channels <= 1:
+        return IMAGE_DIR
+
+    out_dir = EXT_RESULT_ROOT / method / f"images_{channels}ch_repeat"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for src in sorted(IMAGE_DIR.glob("*_0000.nii.gz")):
+        stem = src.name.removesuffix("_0000.nii.gz")
+        for c in range(channels):
+            dst = out_dir / f"{stem}_{c:04d}.nii.gz"
+            if dst.exists():
+                continue
+            try:
+                dst.symlink_to(src)
+            except OSError:
+                import shutil
+                shutil.copy2(src, dst)
+    print(f"[推理] Dataset {dataset} 需要 {channels} 通道，使用重复通道输入: {out_dir}")
+    return out_dir
+
+
+def run_predict(method: str, trainer: str, fold: int, gpu: int, checkpoint: str = "", dataset: str = "003"):
     """调用 nnUNetv2_predict 生成预测文件。"""
     out_dir = EXT_RESULT_ROOT / method / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
+    input_dir = _prepare_predict_input(method, dataset, trainer)
     cmd = [
         "nnUNetv2_predict",
-        "-i", str(IMAGE_DIR),
+        "-i", str(input_dir),
         "-o", str(out_dir),
-        "-d", "003",
+        "-d", _dataset_id_arg(dataset),
         "-c", "3d_fullres",
         "-tr", trainer,
         "-f", str(fold),
@@ -374,7 +426,7 @@ def build_report(method: str, pred_dir: Path,
 # ── 主函数 ────────────────────────────────────────────────────────────────
 
 def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: int,
-        min_voxel: int, checkpoint: str):
+        min_voxel: int, checkpoint: str, dataset: str):
     method_dir = EXT_RESULT_ROOT / method
     pred_dir   = method_dir / "predictions"   # nii.gz 所在目录
     result_dir = method_dir                   # 报告 + viz 输出目录
@@ -384,7 +436,7 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     if predict:
         if not trainer:
             raise ValueError("--predict 需要同时指定 --trainer")
-        run_predict(method, trainer, fold, gpu, checkpoint)
+        run_predict(method, trainer, fold, gpu, checkpoint, dataset)
 
     if not pred_dir.is_dir():
         raise FileNotFoundError(f"预测目录不存在: {pred_dir}")
@@ -475,9 +527,11 @@ def main():
                    help="CUDA_VISIBLE_DEVICES（默认 1）")
     p.add_argument("--checkpoint", default="",
                    help="nnUNet checkpoint 文件名，如 checkpoint_best.pth；默认使用 nnUNetv2_predict 默认值")
+    p.add_argument("--dataset", default="003",
+                   help="预测使用的数据集 id/name，默认 003；HCC/MSD 混合模型应使用 013")
     args = p.parse_args()
     run(args.method, args.no_vis, args.predict, args.trainer, args.fold, args.gpu,
-        args.min_voxel, args.checkpoint)
+        args.min_voxel, args.checkpoint, args.dataset)
 
 
 if __name__ == "__main__":

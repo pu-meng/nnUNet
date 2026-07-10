@@ -9,6 +9,7 @@ Deep supervision 输出顺序（do_ds=True）：
     [full_res, 1/2, 1/4, 1/8, 1/16] — 与 nnUNetv2 期望格式一致
 """
 
+import torch
 from torch.utils import checkpoint as _cp
 from nnunet_mednext.network_architecture.mednextv1.MedNextV1 import MedNeXt
 from pumengyu.architectures.mla_unetr import MLABottleneck3D
@@ -24,6 +25,46 @@ _MEDNEXT_L_KWARGS = dict(
     norm_type='group',
     dim='3d',
 )
+
+
+def _match_spatial_shape(x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+    """Pad/crop x so its spatial size matches ref. Robust to odd nnUNet patch sizes."""
+    target = ref.shape[2:]
+    current = x.shape[2:]
+
+    pads = []
+    for cur, tar in reversed(list(zip(current, target))):
+        diff = tar - cur
+        left = max(diff // 2, 0)
+        right = max(diff - left, 0)
+        pads.extend([left, right])
+    if any(pads):
+        x = torch.nn.functional.pad(x, pads)
+
+    slices = [slice(None), slice(None)]
+    for idx, tar in enumerate(target):
+        dim = idx + 2
+        cur = x.shape[dim]
+        if cur == tar:
+            slices.append(slice(None))
+        else:
+            start = max((cur - tar) // 2, 0)
+            slices.append(slice(start, start + tar))
+    return x[tuple(slices)]
+
+
+def _resize_deep_supervision_outputs(outputs, full_shape, deep_supervision_scales):
+    if deep_supervision_scales is None:
+        return outputs
+    resized = [outputs[0]]
+    for out, scale in zip(outputs[1:], deep_supervision_scales[1:]):
+        target_shape = tuple(max(1, int(round(s * f))) for s, f in zip(scale, full_shape))
+        if tuple(out.shape[2:]) != target_shape:
+            out = torch.nn.functional.interpolate(
+                out, size=target_shape, mode="trilinear", align_corners=False
+            )
+        resized.append(out)
+    return resized
 
 
 def build_mednext_large(
@@ -58,9 +99,11 @@ class MedNeXtMLABot(MedNeXt):
                  mla_num_blocks: int = 2,
                  mla_compression_ratio: int = 4,
                  mla_mlp_ratio: int = 4,
+                 deep_supervision_scales=None,
                  **kwargs):
         super().__init__(*args, **kwargs)
         n_channels = kwargs.get('n_channels', 32)
+        self.deep_supervision_scales = deep_supervision_scales
         self.mla_bot = MLABottleneck3D(
             d_model=n_channels * 16,
             num_heads=mla_num_heads,
@@ -88,6 +131,7 @@ class MedNeXtMLABot(MedNeXt):
                 x_ds_4 = _cp.checkpoint(self.out_4, x, self.dummy_tensor)
 
             x_up_3 = _cp.checkpoint(self.up_3, x, self.dummy_tensor)
+            x_up_3 = _match_spatial_shape(x_up_3, x_res_3)
             dec_x = x_res_3 + x_up_3
             x = self.iterative_checkpoint(self.dec_block_3, dec_x)
             if self.do_ds:
@@ -95,6 +139,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_3, x_up_3
 
             x_up_2 = _cp.checkpoint(self.up_2, x, self.dummy_tensor)
+            x_up_2 = _match_spatial_shape(x_up_2, x_res_2)
             dec_x = x_res_2 + x_up_2
             x = self.iterative_checkpoint(self.dec_block_2, dec_x)
             if self.do_ds:
@@ -102,6 +147,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_2, x_up_2
 
             x_up_1 = _cp.checkpoint(self.up_1, x, self.dummy_tensor)
+            x_up_1 = _match_spatial_shape(x_up_1, x_res_1)
             dec_x = x_res_1 + x_up_1
             x = self.iterative_checkpoint(self.dec_block_1, dec_x)
             if self.do_ds:
@@ -109,6 +155,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_1, x_up_1
 
             x_up_0 = _cp.checkpoint(self.up_0, x, self.dummy_tensor)
+            x_up_0 = _match_spatial_shape(x_up_0, x_res_0)
             dec_x = x_res_0 + x_up_0
             x = self.iterative_checkpoint(self.dec_block_0, dec_x)
             del x_res_0, x_up_0, dec_x
@@ -132,6 +179,7 @@ class MedNeXtMLABot(MedNeXt):
                 x_ds_4 = self.out_4(x)
 
             x_up_3 = self.up_3(x)
+            x_up_3 = _match_spatial_shape(x_up_3, x_res_3)
             dec_x = x_res_3 + x_up_3
             x = self.dec_block_3(dec_x)
             if self.do_ds:
@@ -139,6 +187,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_3, x_up_3
 
             x_up_2 = self.up_2(x)
+            x_up_2 = _match_spatial_shape(x_up_2, x_res_2)
             dec_x = x_res_2 + x_up_2
             x = self.dec_block_2(dec_x)
             if self.do_ds:
@@ -146,6 +195,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_2, x_up_2
 
             x_up_1 = self.up_1(x)
+            x_up_1 = _match_spatial_shape(x_up_1, x_res_1)
             dec_x = x_res_1 + x_up_1
             x = self.dec_block_1(dec_x)
             if self.do_ds:
@@ -153,6 +203,7 @@ class MedNeXtMLABot(MedNeXt):
             del x_res_1, x_up_1
 
             x_up_0 = self.up_0(x)
+            x_up_0 = _match_spatial_shape(x_up_0, x_res_0)
             dec_x = x_res_0 + x_up_0
             x = self.dec_block_0(dec_x)
             del x_res_0, x_up_0, dec_x
@@ -160,7 +211,11 @@ class MedNeXtMLABot(MedNeXt):
             x = self.out_0(x)
 
         if self.do_ds:
-            return [x, x_ds_1, x_ds_2, x_ds_3, x_ds_4]
+            return _resize_deep_supervision_outputs(
+                [x, x_ds_1, x_ds_2, x_ds_3, x_ds_4],
+                x.shape[2:],
+                self.deep_supervision_scales,
+            )
         else:
             return x
 
@@ -173,6 +228,7 @@ def build_mednext_large_mla(
     mla_num_blocks: int = 2,
     mla_compression_ratio: int = 4,
     mla_mlp_ratio: int = 4,
+    deep_supervision_scales=None,
 ) -> MedNeXtMLABot:
     net = MedNeXtMLABot(
         in_channels=num_input_channels,
@@ -182,6 +238,7 @@ def build_mednext_large_mla(
         mla_num_blocks=mla_num_blocks,
         mla_compression_ratio=mla_compression_ratio,
         mla_mlp_ratio=mla_mlp_ratio,
+        deep_supervision_scales=deep_supervision_scales,
         **_MEDNEXT_L_KWARGS,
     )
     net.do_ds = enable_deep_supervision
