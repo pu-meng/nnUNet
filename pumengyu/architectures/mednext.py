@@ -10,9 +10,10 @@ Deep supervision 输出顺序（do_ds=True）：
 """
 
 import torch
+from torch import nn
 from torch.utils import checkpoint as _cp
 from nnunet_mednext.network_architecture.mednextv1.MedNextV1 import MedNeXt
-from pumengyu.architectures.mla_unetr import MLABottleneck3D
+from pumengyu.architectures.mla_unetr import MLABottleneck3D, MHABottleneck3D
 
 _MEDNEXT_L_KWARGS = dict(
     n_channels=32,
@@ -99,6 +100,7 @@ class MedNeXtMLABot(MedNeXt):
                  mla_num_blocks: int = 2,
                  mla_compression_ratio: int = 4,
                  mla_mlp_ratio: int = 4,
+                 mla_use_moe: bool = True,
                  deep_supervision_scales=None,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,7 +112,11 @@ class MedNeXtMLABot(MedNeXt):
             num_blocks=mla_num_blocks,
             compression_ratio=mla_compression_ratio,
             mlp_ratio=mla_mlp_ratio,
+            use_moe=mla_use_moe,
         )
+
+    def _apply_bottleneck_context(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mla_bot(x)
 
     def forward(self, x):
         x = self.stem(x)
@@ -125,7 +131,9 @@ class MedNeXtMLABot(MedNeXt):
             x = _cp.checkpoint(self.down_3, x_res_3, self.dummy_tensor)
 
             x = self.iterative_checkpoint(self.bottleneck, x)
-            x = self.mla_bot(x)
+            # MLA/MHA Transformer 也纳入 gradient checkpointing，避免保留整个
+            # attention/FFN 中间激活。use_reentrant=False 支持正常的 autograd 输入。
+            x = _cp.checkpoint(self._apply_bottleneck_context, x, use_reentrant=False)
 
             if self.do_ds:
                 x_ds_4 = _cp.checkpoint(self.out_4, x, self.dummy_tensor)
@@ -173,7 +181,7 @@ class MedNeXtMLABot(MedNeXt):
             x = self.down_3(x_res_3)
 
             x = self.bottleneck(x)
-            x = self.mla_bot(x)
+            x = self._apply_bottleneck_context(x)
 
             if self.do_ds:
                 x_ds_4 = self.out_4(x)
@@ -220,6 +228,91 @@ class MedNeXtMLABot(MedNeXt):
             return x
 
 
+class MedNeXtMHABot(MedNeXtMLABot):
+    """MedNeXt-L + 标准 Transformer bottleneck（MHA + MLP）。"""
+
+    def __init__(self, *args,
+                 mha_num_heads: int = 8,
+                 mha_num_blocks: int = 2,
+                 mha_mlp_ratio: int = 4,
+                 mha_use_moe: bool = False,
+                 **kwargs):
+        # 先由父类完成完全相同的 MedNeXt 构建，再仅替换上下文模块。
+        super().__init__(
+            *args,
+            mla_num_heads=mha_num_heads,
+            mla_num_blocks=mha_num_blocks,
+            mla_mlp_ratio=mha_mlp_ratio,
+            mla_use_moe=mha_use_moe,
+            **kwargs,
+        )
+        n_channels = kwargs.get('n_channels', 32)
+        self.mla_bot = MHABottleneck3D(
+            d_model=n_channels * 16,
+            num_heads=mha_num_heads,
+            num_blocks=mha_num_blocks,
+            mlp_ratio=mha_mlp_ratio,
+            use_moe=mha_use_moe,
+        )
+
+
+class HCCBottleneckAdapter3D(nn.Module):
+    """
+    HCC-specific residual adapter for MedNeXt+MLA bottleneck features.
+
+    The zero-initialized up projection makes the adapter an identity mapping at
+    initialization: y = x + 0. This allows loading a Dataset003-trained base and
+    learning only the HCC residual correction.
+    """
+
+    def __init__(self, channels: int, reduction: int = 16, zero_init: bool = True):
+        super().__init__()
+        hidden_channels = max(channels // reduction, 1)
+        self.down = nn.Conv3d(channels, hidden_channels, kernel_size=1, bias=True)
+        self.act = nn.GELU()
+        self.up = nn.Conv3d(hidden_channels, channels, kernel_size=1, bias=True)
+        if zero_init:
+            nn.init.zeros_(self.up.weight)
+            nn.init.zeros_(self.up.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.up(self.act(self.down(x)))
+
+
+class MedNeXtMLAHCCAdapterBot(MedNeXtMLABot):
+    """
+    MedNeXt-L + MLA Bottleneck + HCC-specific residual adapter.
+
+    Adapter position:
+        MedNeXt bottleneck -> MLABottleneck3D -> hcc_adapter -> decoder
+
+    The module name is deliberately `hcc_adapter` so it can be isolated for
+    freezing, loading and checkpoint inspection.
+    """
+
+    def __init__(self, *args,
+                 hcc_adapter_reduction: int = 16,
+                 hcc_adapter_zero_init: bool = True,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        n_channels = kwargs.get('n_channels', 32)
+        self.hcc_adapter = HCCBottleneckAdapter3D(
+            channels=n_channels * 16,
+            reduction=hcc_adapter_reduction,
+            zero_init=hcc_adapter_zero_init,
+        )
+
+    def _apply_bottleneck_context(self, x: torch.Tensor) -> torch.Tensor:
+        x = super()._apply_bottleneck_context(x)
+        return self.hcc_adapter(x)
+
+    def freeze_except_hcc_adapter(self) -> None:
+        for param in self.parameters():
+            param.requires_grad = False
+        for param in self.hcc_adapter.parameters():
+            param.requires_grad = True
+
+
 def build_mednext_large_mla(
     num_input_channels: int,
     num_output_channels: int,
@@ -228,6 +321,7 @@ def build_mednext_large_mla(
     mla_num_blocks: int = 2,
     mla_compression_ratio: int = 4,
     mla_mlp_ratio: int = 4,
+    mla_use_moe: bool = True,
     deep_supervision_scales=None,
 ) -> MedNeXtMLABot:
     net = MedNeXtMLABot(
@@ -238,8 +332,68 @@ def build_mednext_large_mla(
         mla_num_blocks=mla_num_blocks,
         mla_compression_ratio=mla_compression_ratio,
         mla_mlp_ratio=mla_mlp_ratio,
+        mla_use_moe=mla_use_moe,
         deep_supervision_scales=deep_supervision_scales,
         **_MEDNEXT_L_KWARGS,
     )
     net.do_ds = enable_deep_supervision
+    return net
+
+
+def build_mednext_large_mha(
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool = True,
+    mha_num_heads: int = 8,
+    mha_num_blocks: int = 2,
+    mha_mlp_ratio: int = 4,
+    mha_use_moe: bool = False,
+    deep_supervision_scales=None,
+) -> MedNeXtMHABot:
+    net = MedNeXtMHABot(
+        in_channels=num_input_channels,
+        n_classes=num_output_channels,
+        deep_supervision=True,
+        mha_num_heads=mha_num_heads,
+        mha_num_blocks=mha_num_blocks,
+        mha_mlp_ratio=mha_mlp_ratio,
+        mha_use_moe=mha_use_moe,
+        deep_supervision_scales=deep_supervision_scales,
+        **_MEDNEXT_L_KWARGS,
+    )
+    net.do_ds = enable_deep_supervision
+    return net
+
+
+def build_mednext_large_mla_hcc_adapter(
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool = True,
+    mla_num_heads: int = 8,
+    mla_num_blocks: int = 2,
+    mla_compression_ratio: int = 4,
+    mla_mlp_ratio: int = 4,
+    mla_use_moe: bool = True,
+    deep_supervision_scales=None,
+    hcc_adapter_reduction: int = 16,
+    hcc_adapter_zero_init: bool = True,
+    freeze_base: bool = True,
+) -> MedNeXtMLAHCCAdapterBot:
+    net = MedNeXtMLAHCCAdapterBot(
+        in_channels=num_input_channels,
+        n_classes=num_output_channels,
+        deep_supervision=True,
+        mla_num_heads=mla_num_heads,
+        mla_num_blocks=mla_num_blocks,
+        mla_compression_ratio=mla_compression_ratio,
+        mla_mlp_ratio=mla_mlp_ratio,
+        mla_use_moe=mla_use_moe,
+        deep_supervision_scales=deep_supervision_scales,
+        hcc_adapter_reduction=hcc_adapter_reduction,
+        hcc_adapter_zero_init=hcc_adapter_zero_init,
+        **_MEDNEXT_L_KWARGS,
+    )
+    net.do_ds = enable_deep_supervision
+    if freeze_base:
+        net.freeze_except_hcc_adapter()
     return net

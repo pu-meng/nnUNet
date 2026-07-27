@@ -70,5 +70,5 @@ run_ext_val "DeepResGN_MLA" "nnUNetTrainer_DeepResGN_MLA" 1
 log "=========================================="
 log "全部外部验证完成！"
 log "查看结果："
-log "  cat $nnUNet_results/ExternalVal_IRCADb/DeepPlainResGN/report_custom.txt"
-log "  cat $nnUNet_results/ExternalVal_IRCADb/DeepResGN_MLA/report_custom.txt"
+log "  cat $nnUNet_results/IRCADb/source_only/DeepPlainResGN/report_custom.txt"
+log "  cat $nnUNet_results/IRCADb/source_only/DeepResGN_MLA/report_custom.txt"

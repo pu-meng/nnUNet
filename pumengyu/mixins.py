@@ -112,7 +112,7 @@ class HCCMixTrainingMixin:
     Runtime MSD + HCC training mixin.
 
     第一版以 Dataset013_HCCMultiPhase 为主数据集运行：
-        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MSDHCCMix
+        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MoE_MSDHCCMix
 
     它只在训练 dataloader 层追加 Dataset003_Liver；验证集仍保持主数据集 split。
     """
@@ -1427,6 +1427,17 @@ class AutoReportMixin:
     """
 
     def perform_actual_validation(self, save_probabilities: bool = False):
+        # 所有正式 validation / internal test 统一使用 best checkpoint。
+        # 这里强制加载，避免训练命令遗漏 --val_best 时回落到 final。
+        best_checkpoint = Path(self.output_folder) / "checkpoint_best.pth"  # type: ignore
+        if best_checkpoint.is_file():
+            self.load_checkpoint(str(best_checkpoint))  # type: ignore
+            self.print_to_log_file(  # type: ignore
+                f"[BestCheckpoint] 已加载 {best_checkpoint} 用于 validation/test",
+                also_print_to_console=True,
+            )
+        else:
+            raise FileNotFoundError(f"正式验证要求 checkpoint_best.pth，但文件不存在: {best_checkpoint}")
         super().perform_actual_validation(save_probabilities)  # type: ignore
 
 
@@ -1449,7 +1460,7 @@ class AutoInternalTestMixin:
         "nnUNetTrainer_FPSafe": "FPSafe",
         "nnUNetTrainer_SizeOV4_FPSafe": "SizeOV4_FPSafe",
         "nnUNetTrainer_MedNeXt_FPSafe": "MedNeXt_FPSafe",
-        "nnUNetTrainer_MedNeXt_MLA_FPSafe": "MedNeXt_MLA_FPSafe",
+        "nnUNetTrainer_MedNeXt_MLA_MoE_FPSafe": "MedNeXt_MLA_MoE_FPSafe",
         "nnUNetTrainer_MLAUNet_MoE": "MoE",
         "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2": "MoE_SizeOV2",
         "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4": "MoE_SizeOV4",
@@ -1523,7 +1534,7 @@ class AutoInternalTestMixin:
         import subprocess
 
         method = self._auto_external_method_name()
-        result_dir = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb") / method
+        result_dir = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only") / method
         report_path = result_dir / "report_custom.txt"
 
         if report_path.exists() and not self._auto_external_force():
@@ -1547,7 +1558,7 @@ class AutoInternalTestMixin:
             "--dataset", dataset_name,
             "--fold", str(getattr(self, "fold", 0)),
             "--gpu", str(gpu),
-            "--checkpoint", "checkpoint_final.pth",
+            "--checkpoint", "checkpoint_best.pth",
         ]
         if self._auto_external_no_vis():
             cmd.append("--no_vis")

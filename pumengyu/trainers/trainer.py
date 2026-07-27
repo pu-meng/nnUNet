@@ -1,6 +1,7 @@
 import pydoc
 import torch
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+from nnunetv2.training.lr_scheduler.polylr import PolyLRScheduler
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from pumengyu.mixins import (
     CopyPasteMixin, DifficultyCopyPasteMixin,
@@ -17,7 +18,12 @@ from pumengyu.mixins import (
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
-from pumengyu.architectures.mednext import build_mednext_large, build_mednext_large_mla
+from pumengyu.architectures.mednext import (
+    build_mednext_large,
+    build_mednext_large_mla,
+    build_mednext_large_mha,
+    build_mednext_large_mla_hcc_adapter,
+)
 from pumengyu.architectures.deep_plain_res_gn import (
     build_deep_plain_res_gn,
     build_deep_res_gn_mla,
@@ -1403,10 +1409,10 @@ class nnUNetTrainer_MedNeXt(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
     def set_deep_supervision_enabled(self, enabled: bool):
         # MedNeXt 用 do_ds 而非 decoder.deep_supervision
         from torch._dynamo import OptimizedModule
-        mod = self.network.module if self.is_ddp else self.network
+        mod = self.network.module if self.is_ddp else self.network #type: ignore
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod  # 解包到内层真实模型，否则 torch.compile 追踪内层 do_ds 不变
-        mod.do_ds = enabled
+        mod.do_ds = enabled #type: ignore
 
 
 class nnUNetTrainer_MedNeXt_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt):
@@ -1456,18 +1462,18 @@ class nnUNetTrainer_MedNeXt_SizeOV4(
 
     def set_deep_supervision_enabled(self, enabled: bool):
         from torch._dynamo import OptimizedModule
-        mod = self.network.module if self.is_ddp else self.network
+        mod = self.network.module if self.is_ddp else self.network    #type: ignore
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod
-        mod.do_ds = enabled
+        mod.do_ds = enabled    #type: ignore
 
-    def _do_i_compile(self):
+    def _do_i_compile(self): #type: ignore
         return False
 
-    def _do_i_compile(self):
+    def _do_i_compile(self):#type: ignore
         return False
 
-    def _do_i_compile(self):
+    def _do_i_compile(self):#type: ignore
         return False
 
     def _do_i_compile(self):
@@ -1476,14 +1482,18 @@ class nnUNetTrainer_MedNeXt_SizeOV4(
 
 class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
     """
-    MedNeXt-L + MLA Bottleneck。
+    MedNeXt-L + MLA Attention + 标准 MLP，MoE 明确关闭。
+
+    该无后缀类现在严格表示纯 MLA 实验。历史上由该类名产生、但实际包含
+    MoE-FFN 的 checkpoint 已迁移到 `nnUNetTrainer_MedNeXt_MLA_MoE` 名下。
 
     架构（MedNeXtMLABot）：
         Encoder/Decoder：MedNeXt-L（k=3 IB 卷积 + 残差，block_counts=[3,4,8,8,8,8,8,4,3]）
         Bottleneck：MedNeXt bottleneck（8 IB blocks, 512 ch）→ MLABottleneck3D（2 层 MLA）
 
     动机：MedNeXt IB 卷积提供强局部特征，MLA 在最低分辨率特征图建立全局依赖，两者互补。
-    对照 nnUNetTrainer_MedNeXt（0.8402）单一变量 = MLA bottleneck。
+    相对 nnUNetTrainer_MedNeXt 只增加 MLA Attention + 标准 MLP bottleneck；
+    与 MedNeXt_MHA（MHA + MLP）构成同 FFN 的 attention 对照。
 
     结果目录：nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/
     """
@@ -1492,6 +1502,7 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
     MLA_NUM_BLOCKS:        int = 2
     MLA_COMPRESSION_RATIO: int = 4
     MLA_MLP_RATIO:         int = 4
+    MLA_USE_MOE:           bool = False
 
     @staticmethod
     def _deep_supervision_scales_from_configuration(configuration_manager: ConfigurationManager):
@@ -1519,18 +1530,79 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
             mla_num_blocks=cls.MLA_NUM_BLOCKS,
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            mla_use_moe=cls.MLA_USE_MOE,
             deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
         )
 
     def set_deep_supervision_enabled(self, enabled: bool):
         from torch._dynamo import OptimizedModule
-        mod = self.network.module if self.is_ddp else self.network
+        mod = self.network.module if self.is_ddp else self.network    #type: ignore
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod
-        mod.do_ds = enabled
+        mod.do_ds = enabled    #type: ignore
 
     def _do_i_compile(self):
         return False
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE(nnUNetTrainer_MedNeXt_MLA):
+    """MedNeXt-L + MLA Attention + MoE-FFN；承接全部历史误命名 checkpoint。"""
+
+    MLA_USE_MOE: bool = True
+
+
+class nnUNetTrainer_MedNeXt_MLA_MLP(nnUNetTrainer_MedNeXt_MLA):
+    """显式 MLP 别名；与无后缀 nnUNetTrainer_MedNeXt_MLA 结构完全一致。"""
+
+    MLA_USE_MOE: bool = False
+
+
+class nnUNetTrainer_MedNeXt_MHA(nnUNetTrainer_MedNeXt_MLA):
+    """MedNeXt-L + 标准 MHA + 标准 MLP，用于替换 MLA 的严格消融实验。
+
+    与 nnUNetTrainer_MedNeXt_MLA 保持相同的 MedNeXt 主干、两层 block、
+    8 heads 和训练配置；将 MLA block 整体替换为标准 Q/K/V MHA + MLP。
+    """
+
+    MHA_USE_MOE: bool = False
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mha(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mha_num_heads=cls.MLA_NUM_HEADS,
+            mha_num_blocks=cls.MLA_NUM_BLOCKS,
+            mha_mlp_ratio=cls.MLA_MLP_RATIO,
+            mha_use_moe=cls.MHA_USE_MOE,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
+        )
+
+
+class nnUNetTrainer_MedNeXt_Transformer(nnUNetTrainer_MedNeXt_MHA):
+    """已弃用的兼容别名；历史结果的规范名称是 MedNeXt_MHA。"""
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE(nnUNetTrainer_MedNeXt_MHA):
+    """MedNeXt-L + 标准 MHA + MoE-FFN 的严格控制变量 Trainer。
+
+    与 ``nnUNetTrainer_MedNeXt_MHA`` 相比只将标准 MLP 替换为
+    与 ``nnUNetTrainer_MedNeXt_MLA_MoE`` 相同的 MoE-FFN；MedNeXt-L
+    主干、标准 MHA、block 数、head 数和训练配置保持不变。
+
+    它填补 MHA/MLA × MLP/MoE 2×2 实验矩阵的缺口，用于分离
+    attention 类型、FFN 类型及二者交互效应。
+    """
+
+    MHA_USE_MOE: bool = True
 
 
 class nnUNetTrainer_MedNeXt_MLA_MSDOnly(nnUNetTrainer_MedNeXt_MLA):
@@ -1542,6 +1614,12 @@ class nnUNetTrainer_MedNeXt_MLA_MSDOnly(nnUNetTrainer_MedNeXt_MLA):
     """
 
 
+class nnUNetTrainer_MedNeXt_MLA_MoE_MSDOnly(nnUNetTrainer_MedNeXt_MLA_MSDOnly):
+    """历史 MSD-only 结构的准确名称：MLA Attention + MoE-FFN。"""
+
+    MLA_USE_MOE: bool = True
+
+
 class nnUNetTrainer_MedNeXt_MLA_HCCOnly(nnUNetTrainer_MedNeXt_MLA):
     """
     Legacy: MedNeXt-L + MLA，纯 HCC 多期 CT 入口。
@@ -1549,6 +1627,12 @@ class nnUNetTrainer_MedNeXt_MLA_HCCOnly(nnUNetTrainer_MedNeXt_MLA):
     数据仍由 nnUNet 的 `-d Dataset013_HCCMultiPhase` 决定；2 通道输入来自
     Dataset013 的 dataset.json 和 plans，不在 Trainer 内硬编码。
     """
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_HCCOnly(nnUNetTrainer_MedNeXt_MLA_HCCOnly):
+    """历史 HCC 多期入口的准确名称：MLA Attention + MoE-FFN。"""
+
+    MLA_USE_MOE: bool = True
 
 
 class nnUNetTrainer_MedNeXt_MLA_HCCRefOnly(nnUNetTrainer_MedNeXt_MLA):
@@ -1567,17 +1651,169 @@ class nnUNetTrainer_MedNeXt_MLA_HCCRefOnly(nnUNetTrainer_MedNeXt_MLA):
     """
 
 
+class nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly(nnUNetTrainer_MedNeXt_MLA_HCCRefOnly):
+    """历史 HCC referenced-CT 入口的准确名称：MLA Attention + MoE-FFN。"""
+
+    MLA_USE_MOE: bool = True
+
+
 class nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020(nnUNetTrainer_MedNeXt_MLA_HCCRefOnly):
     """
     MedNeXt-L + MLA，纯 HCC referenced-CT 单通道 70/10/21 固定划分入口。
 
     该类只用于隔离正式 HCC held-out 实验的结果目录。数据划分仍由
     Dataset013_HCCReferencedCT 的 splits_final.json 决定，其中 test cases
-    记录在 split_info_701020_from_fold0.json，不写入 nnU-Net train/val split。
+    记录在 split_info_701020_stratified_v2.json，不写入 nnU-Net train/val split。
 
     用法：
         nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020
     """
+
+    SPLIT_INFO_FILENAME = "split_info_701020_stratified_v2.json"
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly701020(
+    nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020
+):
+    """历史 HCC referenced-CT 70/10/21 结构的准确名称：MLA + MoE。"""
+
+    MLA_USE_MOE: bool = True
+
+
+class nnUNetTrainer_MedNeXt_MLA_HCCAdapter701020(nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020):
+    """
+    MedNeXt-L + MLA + HCC-specific bottleneck adapter，70/10/21 HCC split 入口。
+
+    设计目的：
+      - Dataset003/IRCADb 主干仍使用 MedNeXt_MLA；
+      - HCCReferencedCT 只训练 `hcc_adapter.*` 这组小参数；
+      - MedNeXt encoder/decoder 与 MLA bottleneck 从 Dataset003 的 MedNeXt_MLA
+        checkpoint 初始化后冻结，避免 HCC 梯度覆盖原有主干能力。
+
+    架构：
+        MedNeXt bottleneck -> MLABottleneck3D -> hcc_adapter -> decoder
+
+    结果目录：
+        nnUNetTrainer_MedNeXt_MLA_HCCAdapter701020__nnUNetPlans__3d_fullres/
+
+    用法：
+        nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_HCCAdapter701020
+    """
+
+    HCC_ADAPTER_REDUCTION: int = 16
+    HCC_ADAPTER_ZERO_INIT: bool = True
+    HCC_ADAPTER_FREEZE_BASE: bool = True
+    # IRCADb/MSD 必须走 Dataset003 基础模型与 plans，不能从 HCC Trainer
+    # 直接触发单域外部验证。三域评估由 07_run_mixed_domain_val.py 统一路由。
+    AUTO_EXTERNAL_VAL = False
+    HCC_ADAPTER_BASE_CHECKPOINT: str = (
+        "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/"
+        "nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth"
+    )
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mla_hcc_adapter(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            mla_use_moe=cls.MLA_USE_MOE,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
+            hcc_adapter_reduction=cls.HCC_ADAPTER_REDUCTION,
+            hcc_adapter_zero_init=cls.HCC_ADAPTER_ZERO_INIT,
+            freeze_base=cls.HCC_ADAPTER_FREEZE_BASE,
+        )
+
+    def configure_optimizers(self):
+        trainable_params = [p for p in self.network.parameters() if p.requires_grad]
+        if not trainable_params:
+            raise RuntimeError("HCCAdapter trainer has no trainable parameters")
+        optimizer = torch.optim.SGD(
+            trainable_params,
+            self.initial_lr,
+            weight_decay=self.weight_decay,
+            momentum=0.99,
+            nesterov=True,
+        )
+        lr_scheduler = PolyLRScheduler(optimizer, self.initial_lr, self.num_epochs)
+        return optimizer, lr_scheduler
+
+    def initialize(self):
+        super().initialize()
+        self._load_hcc_adapter_base_checkpoint()
+        self._log_hcc_adapter_trainable_params()
+
+    def _unwrap_network(self):
+        return self.network.module if self.is_ddp else self.network
+
+    def _load_hcc_adapter_base_checkpoint(self) -> None:
+        ckpt_path = self.HCC_ADAPTER_BASE_CHECKPOINT
+        if not ckpt_path:
+            self.print_to_log_file("[HCCAdapter] No base checkpoint configured; adapter base remains current init.")
+            return
+
+        from os.path import isfile
+
+        if not isfile(ckpt_path):
+            self.print_to_log_file(f"[HCCAdapter] Base checkpoint not found: {ckpt_path}; adapter base remains current init.")
+            return
+
+        checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        source_state = checkpoint.get("network_weights", checkpoint)
+        target_module = self._unwrap_network()
+        target_state = target_module.state_dict()
+
+        loadable = {}
+        skipped = []
+        for key, value in source_state.items():
+            key = key.removeprefix("module.")
+            if key.startswith("hcc_adapter."):
+                skipped.append(key)
+                continue
+            if key in target_state and target_state[key].shape == value.shape:
+                loadable[key] = value
+            else:
+                skipped.append(key)
+
+        missing, unexpected = target_module.load_state_dict(loadable, strict=False)
+        self.print_to_log_file(
+            "[HCCAdapter] Loaded Dataset003 base checkpoint: "
+            f"{ckpt_path}; loaded={len(loadable)}, skipped={len(skipped)}, "
+            f"missing={len(missing)}, unexpected={len(unexpected)}"
+        )
+
+    def _log_hcc_adapter_trainable_params(self) -> None:
+        target_module = self._unwrap_network()
+        total = sum(p.numel() for p in target_module.parameters())  #type: ignore
+        trainable = sum(p.numel() for p in target_module.parameters() if p.requires_grad)  #type: ignore
+        adapter = sum(p.numel() for n, p in target_module.named_parameters() if n.startswith("hcc_adapter."))  #type: ignore
+        self.print_to_log_file(
+            f"[HCCAdapter] trainable={trainable:,}/{total:,} params; "
+            f"hcc_adapter={adapter:,}; freeze_base={self.HCC_ADAPTER_FREEZE_BASE}"
+        )
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_HCCAdapter701020(
+    nnUNetTrainer_MedNeXt_MLA_HCCAdapter701020
+):
+    """历史 HCC Adapter 结构的准确名称：MLA + MoE + bottleneck adapter。"""
+
+    MLA_USE_MOE: bool = True
+    HCC_ADAPTER_BASE_CHECKPOINT: str = (
+        "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/"
+        "nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth"
+    )
 
 
 class nnUNetTrainer_MedNeXt_MLA_MSDHCCMix(HCCMixTrainingMixin, nnUNetTrainer_MedNeXt_MLA):
@@ -1587,6 +1823,12 @@ class nnUNetTrainer_MedNeXt_MLA_MSDHCCMix(HCCMixTrainingMixin, nnUNetTrainer_Med
     用法：`nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MSDHCCMix`。
     验证集保持 Dataset013 的 val split，MSD 只追加到训练 dataloader。
     """
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_MSDHCCMix(nnUNetTrainer_MedNeXt_MLA_MSDHCCMix):
+    """历史 MSD/HCC mix 结构的准确名称：MLA Attention + MoE-FFN。"""
+
+    MLA_USE_MOE: bool = True
 
 
 class nnUNetTrainer_MedNeXt_MLA_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt_MLA):
@@ -1608,6 +1850,12 @@ class nnUNetTrainer_MedNeXt_MLA_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_
     TKN_TOPK_PERCENT: float = 0.01
 
 
+class nnUNetTrainer_MedNeXt_MLA_MoE_FPSafe(nnUNetTrainer_MedNeXt_MLA_FPSafe):
+    """历史 FP-Safe 结构的准确名称：MLA Attention + MoE-FFN + FP-Safe。"""
+
+    MLA_USE_MOE: bool = True
+
+
 class nnUNetTrainer_MedNeXt_MLA_LiverMarginFPSafe(
     TopKLiverMarginNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt_MLA
 ):
@@ -1627,11 +1875,19 @@ class nnUNetTrainer_MedNeXt_MLA_LiverMarginFPSafe(
     TKL_MARGIN: float = 0.10
 
 
+class nnUNetTrainer_MedNeXt_MLA_MoE_LiverMarginFPSafe(
+    nnUNetTrainer_MedNeXt_MLA_LiverMarginFPSafe
+):
+    """历史 liver-margin FP-Safe 结构的准确名称：MLA + MoE + FP-Safe。"""
+
+    MLA_USE_MOE: bool = True
+
+
 class nnUNetTrainer_MedNeXt_MLA_SizeOV4(
     AutoInternalTestMixin, SizeStratifiedOversampleMixin, AutoReportMixin, nnUNetTrainer
 ):
     """
-    MedNeXt-L + MLA Bottleneck + 均匀全量 2× 过采样（SizeOV4）。
+    MedNeXt-L + MLA Attention + 标准 MLP + SizeOV4，MoE 明确关闭。
 
     对照实验链（单一变量逐步叠加）：
         MedNeXt（0.8402）
@@ -1646,6 +1902,7 @@ class nnUNetTrainer_MedNeXt_MLA_SizeOV4(
     MLA_NUM_BLOCKS:        int = 2
     MLA_COMPRESSION_RATIO: int = 4
     MLA_MLP_RATIO:         int = 4
+    MLA_USE_MOE:           bool = False
     SSO_TINY_REPEAT:       int = 2
     SSO_SMALL_REPEAT:      int = 2
     SSO_MID_REPEAT:        int = 2
@@ -1669,14 +1926,27 @@ class nnUNetTrainer_MedNeXt_MLA_SizeOV4(
             mla_num_blocks=cls.MLA_NUM_BLOCKS,
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            mla_use_moe=cls.MLA_USE_MOE,
         )
 
     def set_deep_supervision_enabled(self, enabled: bool):
         from torch._dynamo import OptimizedModule
-        mod = self.network.module if self.is_ddp else self.network
+        mod = self.network.module if self.is_ddp else self.network    #type: ignore
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod
-        mod.do_ds = enabled
+        mod.do_ds = enabled#type: ignore
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_SizeOV4(nnUNetTrainer_MedNeXt_MLA_SizeOV4):
+    """MedNeXt-L + MLA Attention + MoE-FFN + SizeOV4；承接历史 checkpoint。"""
+
+    MLA_USE_MOE: bool = True
+
+
+class nnUNetTrainer_MedNeXt_MLA_MLP_SizeOV4(nnUNetTrainer_MedNeXt_MLA_SizeOV4):
+    """MedNeXt-L + MLA Attention + 标准 MLP + SizeOV4，关闭 MoE。"""
+
+    MLA_USE_MOE: bool = False
 
 
 # ------------------------------------------------------------------ #
@@ -1790,14 +2060,14 @@ class nnUNetTrainer_nnFormer(AutoInternalTestMixin, AutoReportMixin, nnUNetTrain
             target = [i.to(self.device, non_blocking=True) for i in target]
         else:
             target = target.to(self.device, non_blocking=True)
-        self.optimizer.zero_grad(set_to_none=True)
+        self.optimizer.zero_grad(set_to_none=True)  # type: ignore
         # bf16 比 fp16 指数位多（8 vs 5），不溢出，不需要 GradScaler
         with torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=True):
-            output = self.network(data)
-            l = self.loss(output, target)
+            output = self.network(data) #type: ignore
+            l = self.loss(output, target)#type: ignore
         l.backward()
-        torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
-        self.optimizer.step()
+        torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)#type: ignore
+        self.optimizer.step()#type: ignore
         return {'loss': l.detach().cpu().numpy()}
 
 
@@ -2099,10 +2369,10 @@ class nnUNetTrainer_DeepDWIBMedConfig(AutoInternalTestMixin, AutoReportMixin, nn
 
     def set_deep_supervision_enabled(self, enabled: bool):
         from torch._dynamo import OptimizedModule
-        mod = self.network.module if self.is_ddp else self.network
+        mod = self.network.module if self.is_ddp else self.network  #type: ignore
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod
-        mod.do_ds = enabled
+        mod.do_ds = enabled #type: ignore
 
     def _do_i_compile(self):
         return False

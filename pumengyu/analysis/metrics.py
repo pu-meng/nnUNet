@@ -61,28 +61,19 @@ def add_size_category(records: list[dict]) -> list[dict]:
 SIZE_ORDER = ["极小(<5k)", "小(5k-50k)", "中等(50k-300k)", "大(>=300k)", "无肿瘤"]
 
 def aggregate(records: list[dict]) -> dict:
-    """返回分组 dice 均值、无肿瘤误报率、Overall 等。"""
+    """返回 PMY-LT-v1 的阳性病例 Tumor Dice、分组统计与阴性误报。"""
     tumor_cases = [r for r in records if r["size_cat"] != "无肿瘤"]
     notumor_cases = [r for r in records if r["size_cat"] == "无肿瘤"]
 
     # 无肿瘤误报
     fp_notumor = [r for r in notumor_cases if (r["n_pred_tumor"] or 0) > 0]
 
-    # 综合 Dice（无肿瘤误报计 0，无肿瘤正确排除不计入）
-    scores = []
-    for r in records:
-        if r["size_cat"] == "无肿瘤":
-            if (r["n_pred_tumor"] or 0) > 0:
-                scores.append(0.0)   # 误报
-            # 正确排除不加入均值（nnUNet 行为）
-        else:
-            d = r["dice_tumor"]
-            if d is not None and not math.isnan(d):
-                scores.append(d)
-            else:
-                scores.append(0.0)
-
-    overall = float(np.mean(scores)) if scores else float("nan")
+    # 论文主口径：无肿瘤 case 的 Tumor Dice 恒为 N/A。
+    scores = [r["dice_tumor"] for r in tumor_cases
+              if r["dice_tumor"] is not None and not math.isnan(r["dice_tumor"])]
+    tumor_dice = float(np.mean(scores)) if scores else float("nan")
+    # 仅供追溯 nnUNet foreground_mean 的 tumor 分量。
+    nnunet_scores = scores + [0.0] * len(fp_notumor)
 
     # 分组 dice
     by_size: dict[str, list[float]] = {k: [] for k in SIZE_ORDER}
@@ -101,7 +92,11 @@ def aggregate(records: list[dict]) -> dict:
         }
 
     return {
-        "overall": overall,
+        "overall": tumor_dice,  # 兼容旧调用方；语义为 positive-only Tumor Dice
+        "tumor_dice": tumor_dice,
+        "nnunet_tumor_dice_reference": (
+            float(np.mean(nnunet_scores)) if nnunet_scores else float("nan")
+        ),
         "n_tumor_cases": len(tumor_cases),
         "n_notumor_cases": len(notumor_cases),
         "n_fp_notumor": len(fp_notumor),

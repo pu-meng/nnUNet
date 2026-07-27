@@ -149,7 +149,7 @@ DeepResGN Stage 4 (bottleneck, 384ch)：4 blocks × ~3.5M  ≈ 14M
 | nnUNet Baseline | 6 stages, [2,2,2,2,2,2] conv | ✗ | InstanceNorm | ~31M |
 | MedNeXt-L | 9 位置, [3,4,8,8,8,...] IB块 | ✓ | GroupNorm | 61.8M |
 | **DeepResGN** | 9 位置, [3,4,4,4,4] plain块 | ✓ | GroupNorm | **61.1M** |
-| DeepResGN+MLA | DeepResGN + MLA bottleneck | ✓ | GroupNorm | **67.9M** |
+| DeepResGN+MLA | DeepResGN + MLA bottleneck | ✓ | GroupNorm | **67.9M**（较 DeepResGN +6.8M） |
 
 参数量故意对齐 MedNeXt，排除"参数量更多所以更好"的混淆变量。
 

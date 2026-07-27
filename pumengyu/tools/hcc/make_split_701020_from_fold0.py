@@ -6,7 +6,7 @@ Policy:
 - Ten cases are selected from the current fold-0 training set as validation.
 - The remaining 70 cases are used for training.
 - nnU-Net's splits_final.json stores only train/val.
-- The held-out test list is written to split_info_701020_from_fold0.json.
+- The held-out test list is written to split_info_701020_stratified_v2.json.
 
 Run dry first:
     python -m pumengyu.tools.hcc.make_split_701020_from_fold0
@@ -30,7 +30,7 @@ SEED = 42
 DATASET = "Dataset013_HCCReferencedCT"
 PREPROC_DIR = Path("/home/PuMengYu/nnUNet_workspace/preprocessed") / DATASET
 SPLITS_PATH = PREPROC_DIR / "splits_final.json"
-INFO_PATH = PREPROC_DIR / "split_info_701020_from_fold0.json"
+INFO_PATH = PREPROC_DIR / "split_info_701020_stratified_v2.json"
 QC_PATH = Path("/home/PuMengYu/nnUNet/pumengyu/notes/data/hcc_referenced_ct_qc.csv")
 
 

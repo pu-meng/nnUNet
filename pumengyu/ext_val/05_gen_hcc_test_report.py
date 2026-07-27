@@ -1,10 +1,11 @@
 """
-Generate an external-test report on HCCReferencedCT fixed held-out test cases.
+Generate a report on HCCReferencedCT fixed held-out test cases.
 
-This script evaluates Dataset003_Liver-trained models on the HCC 70/10/21
-split's held-out test set only. It does not use HCC train or validation cases.
+The evaluated model may be a Dataset003_Liver source-only model or a
+Dataset013_HCCReferencedCT-adapted model. Metrics always include only the
+fixed test partition; HCC train/validation cases are excluded from evaluation.
 
-Outputs:
+Outputs by default:
     /home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_HCCReferencedCT/<method>/
         predictions/
         report_custom.txt
@@ -12,12 +13,11 @@ Outputs:
 
 Example:
     python pumengyu/ext_val/05_gen_hcc_test_report.py \\
-        --method MedNeXt_MLA \\
+        --method MedNeXt_MLA_MoE \\
         --predict \\
-        --trainer nnUNetTrainer_MedNeXt_MLA \\
+        --trainer nnUNetTrainer_MedNeXt_MLA_MoE \\
         --checkpoint checkpoint_best.pth \\
-        --gpu 0 \\
-        --no_vis
+        --gpu 0
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ WORKSPACE = Path("/home/PuMengYu/nnUNet_workspace")
 HCC_DATASET = "Dataset013_HCCReferencedCT"
 HCC_RAW = WORKSPACE / "raw" / HCC_DATASET
 HCC_PREPROCESSED = WORKSPACE / "preprocessed" / HCC_DATASET
-SPLIT_INFO = HCC_PREPROCESSED / "split_info_701020_from_fold0.json"
+SPLIT_INFO = HCC_PREPROCESSED / "split_info_701020_stratified_v2.json"
 EXT_VAL_ROOT = WORKSPACE / "external_val" / "hcc_referenced_ct_test"
 IMAGE_DIR = EXT_VAL_ROOT / "images"
 LABEL_DIR = EXT_VAL_ROOT / "labels"
@@ -91,7 +91,7 @@ def prepare_hcc_test_external_dir() -> list[str]:
         case: {
             "source_dataset": HCC_DATASET,
             "split": "test",
-            "protocol": "HCC fixed 70/10/21 held-out test; HCC train/val are not used.",
+            "protocol": f"HCC fixed 70/10/21 held-out test from {SPLIT_INFO.name}; HCC train/val are excluded from metrics.",
         }
         for case in cases
     }
@@ -99,7 +99,13 @@ def prepare_hcc_test_external_dir() -> list[str]:
     return cases
 
 
-def _patch_report_header(method: str, cases: list[str]) -> None:
+def _patch_report_header(
+    method: str,
+    cases: list[str],
+    trainer: str,
+    checkpoint: str,
+    dataset: str,
+) -> None:
     report_path = EXT_RESULT_ROOT / method / "report_custom.txt"
     if not report_path.exists():
         return
@@ -109,16 +115,34 @@ def _patch_report_header(method: str, cases: list[str]) -> None:
         "nnUNet External Validation Report (HCCReferencedCT fixed test)",
     )
     marker = f"method   : {method}\n"
+    is_hcc_trained = str(dataset).lstrip("0") == "13" or "HCCAdapter" in trainer
+    if is_hcc_trained:
+        provenance = (
+            f"checkpoint: {checkpoint}\n"
+            f"model_source: Dataset013_HCCReferencedCT-trained/adapted model ({trainer}); "
+            "HCC train/val may be used for fitting/selection, never for test metrics\n"
+        )
+    else:
+        provenance = (
+            f"checkpoint: {checkpoint}\n"
+            f"model_source: Dataset003_Liver source-only model ({trainer}); "
+            "HCC train/val not used for fitting or model selection\n"
+        )
     protocol = (
         marker
         + f"dataset  : {HCC_DATASET}\n"
-        + "split    : fixed 70/10/21 test only\n"
+        + f"split    : fixed 70/10/21 test only ({SPLIT_INFO.name})\n"
         + f"n_test   : {len(cases)}\n"
         + f"split_info: {SPLIT_INFO}\n"
-        + "checkpoint: external Dataset003_Liver model checkpoint; no HCC train/val used here\n"
+        + provenance
     )
-    if marker in text and "split    : fixed 70/10/21 test only" not in text:
-        text = text.replace(marker, protocol, 1)
+    removable_prefixes = ("dataset  :", "split    :", "n_test   :", "split_info:", "checkpoint:", "model_source:")
+    text = "\n".join(
+        line for line in text.splitlines()
+        if not line.startswith(removable_prefixes)
+    )
+    if marker.strip() in text.splitlines():
+        text = text.replace(marker.strip(), protocol.rstrip("\n"), 1)
     report_path.write_text(text, encoding="utf-8")
 
 
@@ -132,6 +156,7 @@ def run(
     min_voxel: int,
     checkpoint: str,
     dataset: str,
+    force_predict: bool = False,
 ) -> None:
     cases = prepare_hcc_test_external_dir()
 
@@ -153,12 +178,15 @@ def run(
         min_voxel=min_voxel,
         checkpoint=checkpoint,
         dataset=dataset,
+        force_predict=force_predict,
     )
-    _patch_report_header(method, cases)
+    _patch_report_header(method, cases, trainer, checkpoint, dataset)
     print(f"[完成] ExternalVal_HCCReferencedCT/{method}/  test n={len(cases)}")
 
 
 def main() -> None:
+    global SPLIT_INFO, EXT_VAL_ROOT, IMAGE_DIR, LABEL_DIR, INFO_FILE, EXT_RESULT_ROOT
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", required=True, help="输出方法名，如 MedNeXt_MLA")
     parser.add_argument("--no_vis", action="store_true", help="跳过可视化生成")
@@ -169,10 +197,22 @@ def main() -> None:
     parser.add_argument("--gpu", type=int, default=0, help="CUDA_VISIBLE_DEVICES")
     parser.add_argument("--checkpoint", default="checkpoint_best.pth", help="默认用 best checkpoint")
     parser.add_argument("--dataset", default="003", help="模型所属训练数据集，Dataset003_Liver 用 003")
+    parser.add_argument("--force_predict", action="store_true",
+                        help="即使预测文件齐全也强制重新推理；默认复用并只补报告/可视化")
+    parser.add_argument("--split_info", default=str(SPLIT_INFO), help="HCC split_info json，默认兼容文件名；当前内容为 stratified v2")
+    parser.add_argument("--ext_val_root", default=str(EXT_VAL_ROOT), help="HCC test images/labels symlink root")
+    parser.add_argument("--result_root", default=str(EXT_RESULT_ROOT), help="HCC external validation output root")
     args = parser.parse_args()
 
     if args.predict and not args.trainer:
         raise ValueError("--predict 需要同时指定 --trainer")
+
+    SPLIT_INFO = Path(args.split_info)
+    EXT_VAL_ROOT = Path(args.ext_val_root)
+    IMAGE_DIR = EXT_VAL_ROOT / "images"
+    LABEL_DIR = EXT_VAL_ROOT / "labels"
+    INFO_FILE = EXT_VAL_ROOT / "case_info.json"
+    EXT_RESULT_ROOT = Path(args.result_root)
 
     os.environ.setdefault("nnUNet_results", str(WORKSPACE / "results_v2"))
     run(
@@ -185,6 +225,7 @@ def main() -> None:
         min_voxel=args.min_voxel,
         checkpoint=args.checkpoint,
         dataset=args.dataset,
+        force_predict=args.force_predict,
     )
 
 

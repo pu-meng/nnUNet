@@ -11,3 +11,4 @@
 | `归一化方案.md` | BN / IN / LN 对比 |
 | `镜像翻转.md` | mirroring 原理 |
 | `torch_compile与MED_VQA.md` | torch.compile bug 和 MED-VQA 阅读记录 |
+| `MixedValidation模型关系与MSD报告补算.md` | mixed 三域模型路由、MSD 缺失产物补算与验收命令 |

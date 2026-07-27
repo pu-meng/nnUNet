@@ -28,6 +28,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
+from pumengyu.tools.analyasis.metric_standard import aggregate_liver_tumor_metrics
+
 
 # ───────────────────────────── mode detection ────────────────────────────
 
@@ -218,8 +220,7 @@ def run_eval_report(val_dir, gt_dir, img_dir,
 
     summary_path = val_dir / "summary.json"
     if not summary_path.exists():
-        print(f"[eval_fold_report] 找不到 {summary_path}")
-        return
+        raise FileNotFoundError(f"[eval_fold_report] 找不到 {summary_path}")
 
     mode = _detect_mode(summary_path)
     tumor_label = "2" if mode == "liver_tumor" else "1"
@@ -340,48 +341,33 @@ def run_eval_report(val_dir, gt_dir, img_dir,
         lines.append("  （无此类 case）")
     lines.append("")
 
-    # ── 综合指标（与 nnUNet summary.json 完全一致）──────────────────────────
-    # 无肿瘤正确(GT=0,pred=0) → Dice=NaN → 从均值中排除（nanmean）
-    # 无肿瘤误报(GT=0,pred>0) → Dice=0   → 计入均值
-    # Overall = (liver_mean + tumor_mean) / 2，与 nnUNet foreground_mean 一致
-    n_tn = sum(1 for r in no_tumor if r["pred_tumor"] == 0)
-    n_fp = len(false_pos_cases)
+    # ── PMY-LT-v1 论文主口径 + nnUNet 追溯参考 ──
+    agg = aggregate_liver_tumor_metrics(has_tumor, no_tumor, show_liver=show_liver)
+    primary = agg["primary"]
+    nnref = agg["nnunet_reference"]
+    mean_liver_dice = agg["liver"]["mean"]
+    mean_tumor_dice = primary["dice"]["mean"]
+    overall = primary["overall"]
+    n_tn, n_fp = agg["n_negative_tn"], agg["n_negative_fp"]
 
-    # NaN for TN, 0.0 for FP — 与 nnUNet compute_metrics_on_folder 行为一致
-    no_tumor_dices    = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
-    no_tumor_jaccards = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor]
-    all_dices    = [r["dice"]    for r in has_tumor] + no_tumor_dices
-    all_jaccards = [r["jaccard"] for r in has_tumor] + no_tumor_jaccards
-
-    recalls    = [r["recall"]    for r in has_tumor]
-    fnrs       = [r["fnr"]       for r in has_tumor]
-    precisions = [r["precision"] for r in has_tumor] + [0.0] * n_fp
-    fdrs       = [r["fdr"]       for r in has_tumor] + [1.0] * n_fp
-
-    mean_tumor_dice = float(np.nanmean(all_dices))
-    std_tumor_dice  = float(np.nanstd(all_dices))
-    mean_liver_dice = np.mean(liver_dices) if liver_dices else float("nan")
-    overall         = (mean_liver_dice + mean_tumor_dice) / 2 if show_liver else mean_tumor_dice
-    n_valid         = sum(1 for d in all_dices if not np.isnan(d))
-
-    lines.append(f"Tumor 综合指标（与 nnUNet foreground_mean 一致）")
-    lines.append(f"  无肿瘤正确(TN, n={n_tn}) → Dice=NaN 排除；无肿瘤误报(FP, n={n_fp}) → Dice=0 计入")
-    lines.append(f"  Dice        : mean={mean_tumor_dice:.4f}  std={std_tumor_dice:.4f}"
-                 f"  (参与计算 n={n_valid}，排除 TN n={n_tn})")
-    lines.append(f"  Jaccard     : mean={float(np.nanmean(all_jaccards)):.4f}"
-                 f"  std={float(np.nanstd(all_jaccards)):.4f}")
-    lines.append(f"  Recall      : mean={np.mean(recalls):.4f}  std={np.std(recalls):.4f}"
-                 f"  (有肿瘤 n={len(recalls)})")
-    lines.append(f"  FNR         : mean={np.mean(fnrs):.4f}  std={np.std(fnrs):.4f}")
-    lines.append(f"  Precision   : mean={np.mean(precisions):.4f}  std={np.std(precisions):.4f}"
-                 f"  (有肿瘤+误报 n={len(precisions)})")
-    lines.append(f"  FDR         : mean={np.mean(fdrs):.4f}  std={np.std(fdrs):.4f}")
+    lines.append("Tumor 综合指标（PMY-LT-v1 论文主口径；仅 GT 有肿瘤 case）")
+    lines.append(f"  无肿瘤 case (n={len(no_tumor)}) 的 Tumor Dice/Recall/Precision 统一为 N/A，不进入均值")
+    for label, key in (("Dice", "dice"), ("Jaccard", "jaccard"), ("Recall", "recall"),
+                       ("FNR", "fnr"), ("Precision", "precision"), ("FDR", "fdr")):
+        metric = primary[key]
+        lines.append(f"  {label:<12}: mean={metric['mean']:.4f}  std={metric['std']:.4f}"
+                     f"  (有肿瘤 n={len(has_tumor)})")
     if show_liver:
-        lines.append(f"  Overall     : (liver {mean_liver_dice:.4f} + tumor {mean_tumor_dice:.4f}) / 2"
-                     f" = {overall:.4f}  ← 与 nnUNet foreground_mean 一致")
-    lines.append(f"  构成        : 有肿瘤 n={len(has_tumor)}"
-                 f"  |  无肿瘤TN(排除) n={n_tn}"
-                 f"  |  无肿瘤FP(计0) n={n_fp}")
+        lines.append(f"  Overall     : (all-case liver {mean_liver_dice:.4f}"
+                     f" + positive-only tumor {mean_tumor_dice:.4f}) / 2 = {overall:.4f}")
+    lines.append(f"  构成        : 全部 n={agg['n_all']} | 有肿瘤 n={len(has_tumor)}"
+                 f" | 无肿瘤 n={len(no_tumor)} (TN={n_tn}, FP={n_fp})")
+    lines.append("")
+    lines.append("nnUNet foreground_mean 参考（仅供 summary.json 追溯，不参与论文排名）")
+    lines.append(f"  Tumor Dice : mean={nnref['tumor_dice']['mean']:.4f}"
+                 f"  std={nnref['tumor_dice']['std']:.4f}  (valid n={nnref['n_tumor_valid']})")
+    if show_liver:
+        lines.append(f"  Overall    : {nnref['overall']:.4f}")
     lines.append("")
 
     # ── 按肿瘤大小分组统计 ───────────────────────────────────────────────
@@ -538,11 +524,10 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                               r["gt_liver"], show_liver))
 
     # ── 无肿瘤误报 case 详情 ─────────────────────────────────────────────
-    # 误报越少 → liver FN 越少 → liver Dice 越高 → Overall 越高
     if false_pos_cases:
         fp_col = (f"  {'case':<20} {'liver_dice':>10} {'pred_tumor':>12}"
                   f" {'gt_liver':>10}  说明")
-        lines.append(f"\n[无肿瘤误报] tumor_dice=0，体现为 liver Dice 下降  (n={len(false_pos_cases)})")
+        lines.append(f"\n[无肿瘤误报] tumor_dice=N/A，误报单独报告  (n={len(false_pos_cases)})")
         lines.append(SEP)
         lines.append(fp_col)
         lines.append(SEP)

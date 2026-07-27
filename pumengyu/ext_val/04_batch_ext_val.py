@@ -25,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb")
+EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
 
 # (method_name, trainer_name, internal_overall)  按内部 Overall 从高到低
 METHODS = [

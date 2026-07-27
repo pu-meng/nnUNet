@@ -1,9 +1,8 @@
-# 消融分析
+# Mirror 消融分析
+
+> 文档定位：只保留 Baseline vs NoMirror 的详细证据；MedNeXt、MHA、MLA、MoE、SizeOV 和 FP-Safe 的总体结论统一见 [MedNeXt 系列消融实验结果汇总](MedNeXt系列消融实验结果汇总.md)。
 
 ## Baseline vs NoMirror 实验结果对比分析
-
-
-#### Baseline vs NoMirror 实验结果对比分析
 
 ##### 1. 实验设计
 
@@ -48,11 +47,13 @@ class NoMirrorMixin:
 | 指标 | Baseline | NoMirror | 变化方向 |
 |------|----------|----------|----------|
 | **Liver Dice** | **0.9340** | **0.9581** | **↑ +0.0241 (+2.6%)** ✅ |
-| **Tumor Dice** | **0.6542** | **0.6685** | **↑ +0.0143 (+2.2%)** ✅ |
-| **Overall** | **0.7941** | **0.8133** | **↑ +0.0192 (+2.4%)** ✅ |
+| **Tumor Dice（仅 GT 阳性 23 例）** | **0.7395** | **0.7267** | **↓ -0.0128 (-1.7%)** ❌ |
+| **Overall（PMY-LT-v1）** | **0.8368** | **0.8424** | **↑ +0.0056 (+0.7%)** ✅ |
 | **Recall** | 0.7853 | 0.6769 | ↓ -0.1084 (-13.8%) ❌ |
-| **Precision** | 0.6451 | **0.7685** | **↑ +0.1234 (+19.1%)** ✅ |
-| **FDR** | 0.3549 | **0.1915** | **↓ -0.1634 (-46.0%)** ✅ |
+| **Precision（仅 GT 阳性 23 例）** | 0.7292 | **0.8353** | **↑ +0.1061 (+14.6%)** ✅ |
+| **FDR（仅 GT 阳性 23 例）** | 0.2708 | **0.1212** | **↓ -0.1496 (-55.2%)** ✅ |
+
+> 这里不再将 3 个 GT 无肿瘤病例人为记为 Tumor Dice 0/1。因此总 Tumor Dice 与下方四个阳性肿瘤大小分组的方向一致：NoMirror 均下降。Overall 仍小幅上升，是因为 Liver Dice 的 +0.0241 超过了 Tumor Dice 的 -0.0128。
 
 ---
 
@@ -177,193 +178,33 @@ class NoMirrorMixin:
 ###### NoMirror 的优势
 
 1. **Liver Dice 大幅提升**（0.9340 → 0.9581），肝脏分割更准确
-2. **Precision 大幅提升**（0.6451 → 0.7685），误报显著减少
+2. **阳性病例 Precision 提升**（0.7292 → 0.8353），预测更保守
 3. **无肿瘤误报率下降**（100% → 66.67%），liver_91 从 FP 变为 TN
 4. **Tumor FPV 减少 34.9%**，Liver FPV 减少 58.6%
-5. **FDR 从 35.5% 降至 19.2%**，预测更保守更精准
+5. **阳性病例 FDR 从 27.1% 降至 12.1%**
 6. **所有大小类别的 Precision 均提升**，极小肿瘤 Precision 从 47.7% 提升到 73.1%
 
 ###### NoMirror 的代价
 
 1. **Recall 大幅下降**（0.7853 → 0.6769），漏检增多
-2. **极小肿瘤 Recall 从 66.9% 降至 44.4%**，下降 22.5%
-3. **liver_127 完全漏检**（Dice=0.000，Baseline 尚能召回 17.8%）
-4. **Tumor FNV 增加 27.2%**
-5. **liver_89 误报体素从 321 激增到 20,837**
+2. **阳性病例 Tumor Dice 从 0.7395 降至 0.7267**，与所有大小分组下降一致
+3. **极小肿瘤 Recall 从 66.9% 降至 44.4%**，下降 22.5%
+4. **liver_127 完全漏检**（Dice=0.000，Baseline 尚能召回 17.8%）
+5. **Tumor FNV 增加 27.2%**，且 liver_89 误报体素从 321 激增到 20,837
 
 ###### 结论
 
 1. **关闭镜像增强确实减少了无肿瘤误报**，但**付出了小肿瘤召回率下降的代价**
-2. 肝脏 Dice 提升 2.6% 说明镜像对肝脏分割确实是噪音
+2. 肝脏 Dice 提升 2.6%，但这是当前单次消融的相关性结果，不足以单独证明镜像本身是噪音
 3. 肿瘤 Recall 下降 13.8% 说明镜像对肿瘤检测有正面作用（肿瘤位置多变，镜像提供了有用的视角多样性）
-4. **NoMirror 更适合 Precision 优先的场景**（宁可漏检也不要误报）
-5. **Baseline 更适合 Recall 优先的场景**（宁可误报也不要漏检）
+4. NoMirror 呈现“更高 Precision、更低 Recall”的保守倾向，但不建议据此直接宣称其更适合临床场景
+5. Baseline 的肿瘤召回和 Dice 更高；NoMirror 的 Overall 小幅上升主要由 Liver Dice 驱动
 
 ###### 后续改进方向
 
 1. **部分镜像**：尝试 `nnUNetTrainer_onlyMirror01`（只镜像 0/1 轴，不镜像上下轴），在 Precision 和 Recall 之间取得平衡
 2. **NoMirror + 过采样**：NoMirror 基础上叠加 SizeOversample（如 `nnUNetTrainer_SizeOversampleV3_NoMirror`），用数据层过采样补偿小肿瘤召回损失
 3. **NoMirror + UFL**：NoMirror 基础上叠加 UnifiedFocalLoss（delta>0.5 惩罚 FN），用 loss 层补偿召回损失
-
-
----
-
-## MedNeXt / DWIB 机制消融简表
-
-
-#### MedNeXt / DWIB 机制消融简表
-
-生成时间：2026-07-05
-
-口径：
-
-- 内部平均 Dice = 内部 `Overall = (Liver Dice + Tumor Dice) / 2`
-- 外部平均 Dice = IRCADb 外部 `Overall = (Liver Dice + Tumor Dice) / 2`
-- 这里只保留机制判断需要的平均 Dice，不展开 FP率、Precision、大小分组。
-
-##### 1. 总表
-
-| 实验 | 机制定位 | 内部平均 Dice | 外部平均 Dice | 观察 |
-|---|---|---:|---:|---|
-| Baseline | nnUNet 普通基线 | 0.7941 | 0.7727 | 基础参照 |
-| DeepPlainResGN | 更深 + 残差 + GN，无 DWIB | 0.7966 | 0.7442 | 只加深和残差没有带来 MedNeXt 级收益 |
-| DeepPlainResGN_SizeOV4 | DeepPlainResGN + 均匀 2x 过采样 | 0.7908 | 0.7623 | 外部略恢复，内部下降 |
-| DeepDWIBResGN | DW+IB encoder，plain decoder | 0.8198 | 0.7886 | DW+IB 明显有效，且外部也涨 |
-| DeepDWIBMedConfig | 自写 MedNeXt-L 显式配置，全 DWIB | 0.8293 | 0.7867 | 内部继续提升，外部与 DeepDWIBResGN 接近 |
-| MedNeXt | 官方/移植 MedNeXt-L | 0.8402 | 0.7705 | 内部很强，外部下降明显 |
-| MedNeXt_SizeOV4 | MedNeXt + 均匀 2x 过采样 | 0.8431 | 0.7797 | 内部最高，外部小幅恢复 |
-| MedNeXt_MLA | MedNeXt + MLA bottleneck | 0.8259 | 0.8079 | 外部最高，泛化最强 |
-| MedNeXt_MLA_SizeOV4 | MedNeXt + MLA + SizeOV4 | 0.8285 | 0.7870 | 组合不如单独 MLA |
-| MedNeXt_MLA_FPSafe | MedNeXt + MLA + FP-Safe | 0.8326 | 0.7744 | 内部恢复，外部无收益 |
-| DeepResGN_MLA | DeepPlainResGN + MLA | 0.7969 | 0.7551 | 弱底座上加 MLA 效果有限 |
-| MLA_GK5_V4 | MLA-MoE + grouped large-kernel conv + SizeOV4 | 0.8173 | 0.7957 | 外部不错，说明大核/分组卷积有泛化收益 |
-| MLAUNet_MoE_SizeOV4 | MLA-MoE + SizeOV4，自研强基线 | 0.8330 | 缺 | 缺外部结果 |
-| MLAUNet_MoE_IB7_SizeOV4 | MLA-MoE + IB7 + SizeOV4 | 0.8192 | 0.7670 | IB7 放在该路线里没有带来外部收益 |
-| DWSepRes4_MoE_SizeOV4 | DWSep residual encoder + MLA-MoE + SizeOV4 | 缺 | 0.3645 | 外部失败，缺内部报告 |
-
-##### 2. 看 DWIB 是否起作用
-
-| 对照 | 内部平均 Dice | 外部平均 Dice |
-|---|---:|---:|
-| DeepPlainResGN | 0.7966 | 0.7442 |
-| DeepDWIBResGN | 0.8198 | 0.7886 |
-| DeepDWIBMedConfig | 0.8293 | 0.7867 |
-| MedNeXt | 0.8402 | 0.7705 |
-
-判断：
-
-- `DeepPlainResGN -> DeepDWIBResGN`：内部 `+0.0232`，外部 `+0.0444`。
-- 说明 `DW + Inverted Bottleneck` 是有效成分。
-- `DeepDWIBMedConfig` 内部更高，但外部没有继续超过 `DeepDWIBResGN`，说明 MedNeXt 显式配置更偏同域拟合。
-- 官方 `MedNeXt` 内部最高，但外部低于两个自写 DWIB 版本，说明官方实现细节不是外部泛化根因。
-
-##### 3. 看 MLA 是否起作用
-
-| 对照 | 内部平均 Dice | 外部平均 Dice |
-|---|---:|---:|
-| MedNeXt | 0.8402 | 0.7705 |
-| MedNeXt_MLA | 0.8259 | 0.8079 |
-| MedNeXt_MLA_SizeOV4 | 0.8285 | 0.7870 |
-| MedNeXt_MLA_FPSafe | 0.8326 | 0.7744 |
-
-判断：
-
-- `MedNeXt -> MedNeXt_MLA`：内部 `-0.0143`，外部 `+0.0374`。
-- MLA 不是同域提分模块，而是外部泛化增强模块。
-- `MLA + SizeOV4` 和 `MLA + FPSafe` 都没有超过单独 `MLA`。
-
-##### 4. 看 SizeOV4 是否起作用
-
-| 对照 | 内部平均 Dice | 外部平均 Dice |
-|---|---:|---:|
-| MedNeXt | 0.8402 | 0.7705 |
-| MedNeXt_SizeOV4 | 0.8431 | 0.7797 |
-| DeepPlainResGN | 0.7966 | 0.7442 |
-| DeepPlainResGN_SizeOV4 | 0.7908 | 0.7623 |
-
-判断：
-
-- 在 MedNeXt 上，SizeOV4 内部 `+0.0029`，外部 `+0.0092`，收益很小但方向为正。
-- 在 DeepPlainResGN 上，SizeOV4 内部下降、外部上升，说明它更像弱泛化/采样正则，不是 MedNeXt 的主要机制。
-
-##### 5. 最简结论
-
-当前结果支持：
-
-```text
-真正起主要作用：DW + Inverted Bottleneck
-增强内部拟合：MedNeXt-L 的完整配置和官方实现
-增强外部泛化：MLA bottleneck
-作用较小：SizeOV4
-当前不支持：单纯更深 + 残差 + GN 是主因
-```
-
-一句话：
-
-**MedNeXt 的核心有效因素是 DW+IB block；官方 MedNeXt 完整设计让内部分数更高，但外部泛化最明显的提升来自 MLA。**
-
-
----
-
-## MedNeXt 探究消融实验
-
-
-#### MedNeXt 探究消融实验
-
-> 更新：2026-07-02  
-> 数据源：`results_v2/Dataset003_Liver/*/test_report_custom.txt` 与 `results_v2/ExternalVal_IRCADb/*/report_custom.txt`
-
----
-
-##### 1. 核心结论
-
-`MedNeXt_MLA` 是当前 MedNeXt 族的外部最优；`MedNeXt_MLA_FPSafe` 内部更好但外部失败。
-
-| Variant | 内部 Overall | 外部 Overall | Δ外-内 | 内部 Tumor | 外部 Tumor | 内部 FP | 外部 FP |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| MedNeXt | 0.8402 | 0.7705 | -0.0697 | **0.7283** | 0.5750 | 33% | 60% |
-| MedNeXt_SizeOV4 | **0.8431** | 0.7797 | -0.0634 | **0.7317** | 0.5943 | 33% | 60% |
-| MedNeXt_MLA | 0.8259 | **0.8079** | **-0.0180** | 0.6982 | **0.6484** | 67% | **40%** |
-| MedNeXt_MLA_SizeOV4 | 0.8285 | 0.7870 | -0.0415 | 0.7040 | 0.6091 | 67% | 60% |
-| MedNeXt_MLA_FPSafe | 0.8326 | 0.7744 | -0.0582 | 0.7143 | 0.5852 | 33% | 60% |
-
-判断：
-
-1. `MedNeXt_SizeOV4` 是内部最强，Overall 0.8431。
-2. `MedNeXt_MLA` 是外部最强，Overall 0.8079，Tumor Dice 0.6484。
-3. `MedNeXt_MLA_FPSafe` 把内部 FP 率从 67% 降到 33%，但外部降到 0.7744，说明 FP-safe 约束没有跨域泛化。
-4. `MedNeXt_MLA_SizeOV4` 比 `MedNeXt_MLA` 差，说明 MLA 后继续叠 SizeOV4 不稳定。
-
----
-
-##### 2. FPSafe 结果解读
-
-内部收益：
-
-- Overall 0.8326，高于 `MedNeXt_MLA` 0.8259。
-- Tumor Dice 0.7143，高于 `MedNeXt_MLA` 0.6982。
-- 无肿瘤 FP 率 33%，优于 `MedNeXt_MLA` 的 67%。
-
-外部问题：
-
-- Overall 0.7744，低于 `MedNeXt_MLA` 0.8079。
-- Tumor Dice 0.5852，低于 `MedNeXt_MLA` 0.6484。
-- Precision 0.6711，低于 `MedNeXt_MLA` 0.7437。
-- 无肿瘤 FP 率 60%，没有优于 MedNeXt 原生路线。
-
-结论：FPSafe 可以作为“同域 FP 控制有效、跨域泛化失败”的 ablation。它不适合作为最终主模型。
-
----
-
-##### 3. 论文叙事
-
-推荐写法：
-
-- MedNeXt 是强同域 baseline：`MedNeXt_SizeOV4` 内部 Overall 最高。
-- MLA 是跨域泛化模块：`MedNeXt_MLA` 外部第一，且 drop 明显变小。
-- FPSafe 是负/中性消融：内部 FP 改善，但外部泛化退化，说明单纯 FP 抑制不足以解决跨域误报。
-
-主线不要写成“FPSafe 进一步提升 MedNeXt”，当前数据不支持。
 
 
 ---

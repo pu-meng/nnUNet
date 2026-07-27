@@ -1,8 +1,8 @@
 """
-Create a non-destructive HCCReferencedCT 70/10/21 stratified split v2.
+Create the canonical HCCReferencedCT 70/10/21 stratified split v2.
 
-This script does NOT overwrite nnU-Net's active splits_final.json. It writes
-sidecar v2 files that can be applied after currently running HCC trainers finish.
+It writes the two canonical files used by training and held-out evaluation:
+splits_final.json and split_info_701020_stratified_v2.json.
 
 Policy:
 - Use corrected tumor burden ratio: tumor voxels / all foreground liver+tumor voxels.
@@ -14,7 +14,7 @@ Policy:
 Run dry first:
     python -m pumengyu.tools.hcc.make_split_701020_stratified_v2
 
-Write sidecar files:
+Write canonical files:
     python -m pumengyu.tools.hcc.make_split_701020_stratified_v2 --write
 """
 
@@ -35,7 +35,7 @@ DATASET = "Dataset013_HCCReferencedCT"
 ROOT = Path("/home/PuMengYu/nnUNet_workspace")
 RAW_DIR = ROOT / "raw" / DATASET
 PREPROC_DIR = ROOT / "preprocessed" / DATASET
-SPLITS_V2_PATH = PREPROC_DIR / "splits_final_701020_stratified_v2.json"
+SPLITS_V2_PATH = PREPROC_DIR / "splits_final.json"
 INFO_V2_PATH = PREPROC_DIR / "split_info_701020_stratified_v2.json"
 NOTES_CASES_PATH = Path("/home/PuMengYu/nnUNet/pumengyu/notes/data/hcc_split_701020_stratified_v2_cases.csv")
 
@@ -175,7 +175,7 @@ def write_case_csv(train: list[str], val: list[str], test: list[str], stats: dic
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--write", action="store_true", help="Write v2 sidecar split files")
+    parser.add_argument("--write", action="store_true", help="Write the canonical split files")
     parser.add_argument("--seed", type=int, default=SEED)
     args = parser.parse_args()
 
@@ -204,14 +204,14 @@ def main() -> None:
         print("       " + ", ".join(cases))
 
     if not args.write:
-        print("\n[dry-run] No files were written. Re-run with --write to create v2 sidecar files.")
+        print("\n[dry-run] No files were written. Re-run with --write to create the canonical files.")
         return
 
     info = {
         "dataset": DATASET,
         "version": "701020_stratified_v2",
         "seed": args.seed,
-        "active_splits_final_json_was_not_modified": True,
+        "active_splits_final_json_was_not_modified": False,
         "policy": (
             "Fixed 70/10/21 split selected by corrected tumor burden ratio. "
             "HCC_065 and HCC_075 are retained as review/extreme train cases and excluded from test. "
@@ -236,10 +236,10 @@ def main() -> None:
     INFO_V2_PATH.write_text(json.dumps(info, indent=4, ensure_ascii=False) + "\n")
     write_case_csv(train, val, test, stats)
 
-    print(f"\nWrote v2 nnU-Net train/val sidecar: {SPLITS_V2_PATH}")
+    print(f"\nWrote canonical nnU-Net train/val split: {SPLITS_V2_PATH}")
     print(f"Wrote v2 split info: {INFO_V2_PATH}")
     print(f"Wrote case table: {NOTES_CASES_PATH}")
-    print("Active splits_final.json was not modified.")
+    print("Active splits_final.json now contains this stratified v2 split.")
 
 
 if __name__ == "__main__":

@@ -157,7 +157,7 @@ def build_deep_plain_res_gn(
 #   若 DeepDWIBResGN ≈ MedNeXt → 证明 DW+IB 是可迁移的有效成分
 #
 # 架构参数：
-#   features=[32,64,128,256,512], enc blocks=[3,4,8,8,8], r=8, ~55.6M
+#   features=[32,64,128,256,512], enc blocks=[3,4,8,8,8], r=8, ~58.12M
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DWIBBlock(nn.Module):
@@ -333,7 +333,7 @@ class DeepDWIBNet(nn.Module):
     """
     DeepDWIBResGN 完整网络：DWIBEncoder + UNetDecoder（plain-conv decoder）。
 
-    参数量 ≈ 55.6M（encoder DW+IB; decoder plain-conv）。
+    参数量 ≈ 58.12M（encoder DW+IB; decoder plain-conv）。
     """
 
     def __init__(
@@ -384,7 +384,7 @@ def build_deep_dwib_res_gn(
     n_conv_per_stage_decoder: list = None,
     use_checkpoint: bool = True,
 ) -> DeepDWIBNet:
-    """构建 DeepDWIBResGN（DW+IB encoder，~55.6M 参数）。"""
+    """构建 DeepDWIBResGN（DW+IB encoder，~58.12M 参数）。"""
     return DeepDWIBNet(
         input_channels=num_input_channels,
         num_classes=num_output_channels,

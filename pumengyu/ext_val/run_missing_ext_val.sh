@@ -37,7 +37,7 @@ cd "$REPO_ROOT"
 # ── 需要推理+报告 ──────────────────────────────────────────────────────────
 run_method "MedNeXt_SizeOV4"      "nnUNetTrainer_MedNeXt_SizeOV4"                  1
 run_method "MedNeXt"               "nnUNetTrainer_MedNeXt"                           1
-run_method "MedNeXt_MLA_SizeOV4"  "nnUNetTrainer_MedNeXt_MLA_SizeOV4"              1
+run_method "MedNeXt_MLA_MoE_SizeOV4"  "nnUNetTrainer_MedNeXt_MLA_MoE_SizeOV4"      1
 run_method "MLAUNet_MoE_IB7_SizeOV4" "nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4" 1
 run_method "SwinUNETR"             "nnUNetTrainer_SwinUNETR"                         1
 run_method "nnFormer"              "nnUNetTrainer_nnFormer"                          1
@@ -46,4 +46,4 @@ run_method "nnFormer"              "nnUNetTrainer_nnFormer"                     
 run_method "MLAUNet"               "nnUNetTrainer_MLAUNet"                           1
 
 log "全部完成！"
-log "查看汇总: python pumengyu/ext_val/04_batch_ext_val.py --only MedNeXt_SizeOV4 MedNeXt MedNeXt_MLA_SizeOV4 MLAUNet_MoE_IB7_SizeOV4 SwinUNETR nnFormer MLAUNet"
+log "查看汇总: python pumengyu/ext_val/04_batch_ext_val.py --only MedNeXt_SizeOV4 MedNeXt MedNeXt_MLA_MoE_SizeOV4 MLAUNet_MoE_IB7_SizeOV4 SwinUNETR nnFormer MLAUNet"

@@ -21,7 +21,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPORT_PY="$REPO_ROOT/pumengyu/ext_val/03_gen_method_report.py"
 RESULT_ROOT="/home/PuMengYu/nnUNet_workspace/results_v2"
 INTERNAL_ROOT="$RESULT_ROOT/Dataset003_Liver"
-EXTERNAL_ROOT="$RESULT_ROOT/ExternalVal_IRCADb"
+EXTERNAL_ROOT="$RESULT_ROOT/IRCADb/source_only"
 
 log() {
     echo "[$(date '+%F %T')] $*"
@@ -91,7 +91,7 @@ import math
 import re
 from pathlib import Path
 
-root = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb")
+root = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
 rows = []
 for report in sorted(root.glob("*/report_custom.txt")):
     text = report.read_text(errors="ignore")
@@ -118,7 +118,7 @@ log "Repo: $REPO_ROOT"
 log "Group=A GPU=$GPU NO_VIS=$NO_VIS FORCE=$FORCE STOP_ON_FAIL=$STOP_ON_FAIL"
 echo ""
 
-run_method "MedNeXt_MLA"              "nnUNetTrainer_MedNeXt_MLA"                 "checkpoint_final.pth"
+run_method "MedNeXt_MLA_MoE"          "nnUNetTrainer_MedNeXt_MLA_MoE"             "checkpoint_final.pth"
 run_method "MLAUNet_1500"             "nnUNetTrainer_MLAUNet_1500"                "checkpoint_final.pth"
 run_method "DWSepRes4_MoE_SizeOV4"    "nnUNetTrainer_DWSepRes4_MoE_SizeOV4"       "checkpoint_best.pth"
 

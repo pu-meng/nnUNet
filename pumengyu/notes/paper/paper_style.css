@@ -1,0 +1,47 @@
+.mednext-stage-config table {
+  border-collapse: collapse !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  font-size: 0.70em;
+}
+
+.mednext-stage-config th,
+.mednext-stage-config td {
+  border: 1px solid #333 !important;
+  padding: 4px 5px !important;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.mednext-stage-config col:nth-child(1),
+.mednext-stage-config th:nth-child(1),
+.mednext-stage-config td:nth-child(1) { width: 13% !important; }
+
+.mednext-stage-config col:nth-child(2),
+.mednext-stage-config th:nth-child(2),
+.mednext-stage-config td:nth-child(2) {
+  width: 13% !important;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+.mednext-stage-config col:nth-child(3),
+.mednext-stage-config th:nth-child(3),
+.mednext-stage-config td:nth-child(3) { width: 15% !important; }
+
+.mednext-stage-config col:nth-child(4),
+.mednext-stage-config th:nth-child(4),
+.mednext-stage-config td:nth-child(4) { width: 30% !important; }
+
+.mednext-stage-config col:nth-child(5),
+.mednext-stage-config th:nth-child(5),
+.mednext-stage-config td:nth-child(5) { width: 8% !important; }
+
+.mednext-stage-config col:nth-child(6),
+.mednext-stage-config th:nth-child(6),
+.mednext-stage-config td:nth-child(6) {
+  width: 21% !important;
+  overflow-wrap: anywhere;
+}

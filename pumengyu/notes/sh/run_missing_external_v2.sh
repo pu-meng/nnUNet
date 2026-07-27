@@ -25,7 +25,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPORT_PY="$REPO_ROOT/pumengyu/ext_val/03_gen_method_report.py"
 RESULT_ROOT="/home/PuMengYu/nnUNet_workspace/results_v2"
 INTERNAL_ROOT="$RESULT_ROOT/Dataset003_Liver"
-EXTERNAL_ROOT="$RESULT_ROOT/ExternalVal_IRCADb"
+EXTERNAL_ROOT="$RESULT_ROOT/IRCADb/source_only"
 
 log() {
     echo "[$(date '+%F %T')] $*"
@@ -95,7 +95,7 @@ import math
 import re
 from pathlib import Path
 
-root = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb")
+root = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
 rows = []
 for report in sorted(root.glob("*/report_custom.txt")):
     text = report.read_text(errors="ignore")
@@ -124,7 +124,7 @@ echo ""
 
 # Missing external validations relative to current internal results_v2 trainers.
 # Existing methods are skipped unless FORCE=1.
-run_method "MedNeXt_MLA"              "nnUNetTrainer_MedNeXt_MLA"                 "checkpoint_final.pth"
+run_method "MedNeXt_MLA_MoE"          "nnUNetTrainer_MedNeXt_MLA_MoE"             "checkpoint_final.pth"
 run_method "DeepDWIBResGN"            "nnUNetTrainer_DeepDWIBResGN"               "checkpoint_final.pth"
 run_method "MLAUNet_1500"             "nnUNetTrainer_MLAUNet_1500"                "checkpoint_final.pth"
 run_method "SizeOV3_NoMirror"         "nnUNetTrainer_SizeOversampleV3_NoMirror"   "checkpoint_final.pth"

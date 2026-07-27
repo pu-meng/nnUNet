@@ -2,7 +2,7 @@
 为外部验证集（ircadb）的单个方法生成 report_custom.txt + test_viz/。
 
 目录结构（统一在 results_v2/ 下，与内部实验并列）：
-    results_v2/ExternalVal_IRCADb/MoE_SizeOV4/
+    results_v2/IRCADb/source_only/MoE_SizeOV4/
         predictions/  *.nii.gz          ← nnUNetv2_predict 原始输出
         report_custom.txt               ← 指标报告
         test_viz/{case}/                ← 可视化 PNG
@@ -41,8 +41,8 @@ LABEL_DIR     = EXT_VAL_ROOT / "labels"
 IMAGE_DIR     = EXT_VAL_ROOT / "images"
 INFO_FILE     = EXT_VAL_ROOT / "case_info.json"
 
-# 外部验证结果统一写入 results_v2/ExternalVal_IRCADb/，与内部实验并列
-EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb")
+# 外部验证结果统一写入 results_v2/IRCADb/source_only/，与内部实验并列
+EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
 NNUNET_RESULTS = Path("/home/PuMengYu/nnUNet_workspace/results_v2")
 
 TUMOR_CLS = 2   # label 1=liver, 2=tumor（同 Dataset003）
@@ -51,6 +51,8 @@ LIVER_CLS = 1
 NNUNET_ROOT = "/home/PuMengYu/nnUNet"
 if NNUNET_ROOT not in sys.path:
     sys.path.insert(0, NNUNET_ROOT)
+
+from pumengyu.tools.analyasis.metric_standard import aggregate_liver_tumor_metrics
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
 
@@ -248,20 +250,12 @@ def build_report(method: str, pred_dir: Path,
     liver_dices = [r["liver_dice"] for r in all_cases_data]
     mean_liver  = float(np.mean(liver_dices)) if liver_dices else float("nan")
 
-    n_tn = sum(1 for r in no_tumor_cases if r["pred_tumor"] == 0)
-    n_fp = len(false_pos_cases)
-    no_t_dices = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor_cases]
-    all_dices  = [r["dice"] for r in has_tumor_cases] + no_t_dices
-    all_jac    = [r["jaccard"] for r in has_tumor_cases] + [float("nan") if np.isnan(d) else 0.0 for d in no_t_dices]
-    recalls    = [r["recall"]    for r in has_tumor_cases]
-    fnrs       = [r["fnr"]       for r in has_tumor_cases]
-    precisions = [r["precision"] for r in has_tumor_cases] + [0.0] * n_fp
-    fdrs       = [r["fdr"]       for r in has_tumor_cases] + [1.0] * n_fp
-
-    mean_tumor = float(np.nanmean(all_dices))
-    std_tumor  = float(np.nanstd(all_dices))
-    overall    = (mean_liver + mean_tumor) / 2
-    n_valid    = sum(1 for d in all_dices if not np.isnan(d))
+    agg = aggregate_liver_tumor_metrics(has_tumor_cases, no_tumor_cases)
+    primary = agg["primary"]
+    nnref = agg["nnunet_reference"]
+    n_tn, n_fp = agg["n_negative_tn"], agg["n_negative_fp"]
+    mean_tumor = primary["dice"]["mean"]
+    overall = primary["overall"]
 
     def mm3(r, key): return r[key] * r["vv"]
 
@@ -301,25 +295,24 @@ def build_report(method: str, pred_dir: Path,
             flag = "  [误报]" if r["pred_tumor"] > 0 else ""
             L.append(f"    {r['case']:<22}  liver_dice={r['liver_dice']:.4f}"
                      f"  pred_tumor={fmt_n(r['pred_tumor'])}{flag}")
+    else:
+        L.append("  当前评估集不含无肿瘤 case，阴性误报率不可评估（N/A）")
     L += [
         "",
-        "Tumor 综合指标（与 nnUNet foreground_mean 口径一致）",
-        f"  无肿瘤正确(TN, n={n_tn}) → Dice=NaN 排除；无肿瘤误报(FP, n={n_fp}) → Dice=0 计入",
-        f"  Dice        : mean={mean_tumor:.4f}  std={std_tumor:.4f}"
-        f"  (参与计算 n={n_valid}，排除 TN n={n_tn})",
-        f"  Jaccard     : mean={float(np.nanmean(all_jac)):.4f}"
-        f"  std={float(np.nanstd(all_jac)):.4f}",
-        f"  Recall      : mean={np.mean(recalls):.4f}  std={np.std(recalls):.4f}"
-        f"  (有肿瘤 n={len(recalls)})",
-        f"  FNR         : mean={np.mean(fnrs):.4f}  std={np.std(fnrs):.4f}",
-        f"  Precision   : mean={np.mean(precisions):.4f}  std={np.std(precisions):.4f}"
-        f"  (有肿瘤+误报 n={len(precisions)})",
-        f"  FDR         : mean={np.mean(fdrs):.4f}  std={np.std(fdrs):.4f}",
-        f"  Overall     : (liver {mean_liver:.4f} + tumor {mean_tumor:.4f}) / 2"
-        f" = {overall:.4f}  ← 与 nnUNet foreground_mean 一致",
-        f"  构成        : 有肿瘤 n={len(has_tumor_cases)}"
-        f"  |  无肿瘤TN(排除) n={n_tn}"
-        f"  |  无肿瘤FP(计0) n={n_fp}",
+        "Tumor 综合指标（PMY-LT-v1 论文主口径；仅 GT 有肿瘤 case）",
+        f"  无肿瘤 case (n={len(no_tumor_cases)}) 的 Tumor Dice/Recall/Precision 统一为 N/A，不进入均值",
+        f"  Dice        : mean={primary['dice']['mean']:.4f}  std={primary['dice']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  Jaccard     : mean={primary['jaccard']['mean']:.4f}  std={primary['jaccard']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  Recall      : mean={primary['recall']['mean']:.4f}  std={primary['recall']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  FNR         : mean={primary['fnr']['mean']:.4f}  std={primary['fnr']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  Precision   : mean={primary['precision']['mean']:.4f}  std={primary['precision']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  FDR         : mean={primary['fdr']['mean']:.4f}  std={primary['fdr']['std']:.4f}  (有肿瘤 n={len(has_tumor_cases)})",
+        f"  Overall     : (all-case liver {mean_liver:.4f} + positive-only tumor {mean_tumor:.4f}) / 2 = {overall:.4f}",
+        f"  构成        : 全部 n={agg['n_all']} | 有肿瘤 n={len(has_tumor_cases)} | 无肿瘤 n={len(no_tumor_cases)} (TN={n_tn}, FP={n_fp})",
+        "",
+        "nnUNet foreground_mean 参考（仅供 summary.json 追溯，不参与论文排名）",
+        f"  Tumor Dice : mean={nnref['tumor_dice']['mean']:.4f}  std={nnref['tumor_dice']['std']:.4f}  (valid n={nnref['n_tumor_valid']})",
+        f"  Overall    : {nnref['overall']:.4f}",
         "",
     ]
 
@@ -356,8 +349,10 @@ def build_report(method: str, pred_dir: Path,
         for fc in fp_cases_cc:
             vols = sorted([d["vol"] for d in fp_cc_info if d["case"] == fc])
             L.append(f"    {fc}: {len(vols)} 个假CC，体素数={vols}")
-    else:
+    elif no_tumor_cases:
         L.append("    所有无肿瘤 case 预测均为空 ✓")
+    else:
+        L.append("    当前评估集不含无肿瘤 case，该项不可评估（N/A）")
     if fp_cc_info:
         all_fp_vols = sorted([d["vol"] for d in fp_cc_info])
         L.append(f"  Q2 假连通域大小: min={min(all_fp_vols)}  max={max(all_fp_vols)}"
@@ -412,13 +407,15 @@ def build_report(method: str, pred_dir: Path,
     if false_pos_cases:
         fp_col = (f"  {'case':<22} {'liver_dice':>10} {'pred_tumor':>12}"
                   f" {'gt_liver':>10}  说明")
-        L += [f"\n[无肿瘤误报] tumor_dice=0，体现为 liver Dice 下降  (n={len(false_pos_cases)})",
+        L += [f"\n[无肿瘤误报] tumor_dice=N/A，误报单独报告  (n={len(false_pos_cases)})",
               SEP, fp_col, SEP]
         for r in sorted(false_pos_cases, key=lambda x: x["pred_tumor"], reverse=True):
             L.append(f"  {r['case']:<22} {r['liver_dice']:>10.4f} {fmt_n(r['pred_tumor']):>12}"
                      f" {fmt_n(r['gt_liver']):>10}  GT无肿瘤,预测出{fmt_n(r['pred_tumor'])}体素")
-    else:
+    elif no_tumor_cases:
         L.append(f"\n[无肿瘤误报] 无  (全部 {len(no_tumor_cases)} 个无肿瘤 case 均正确预测为阴性 ✓)")
+    else:
+        L.append("\n[无肿瘤误报] N/A  (当前评估集无阴性 case，不能据此判断误报能力)")
 
     return "\n".join(L)
 
@@ -426,7 +423,7 @@ def build_report(method: str, pred_dir: Path,
 # ── 主函数 ────────────────────────────────────────────────────────────────
 
 def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: int,
-        min_voxel: int, checkpoint: str, dataset: str):
+        min_voxel: int, checkpoint: str, dataset: str, force_predict: bool = False):
     method_dir = EXT_RESULT_ROOT / method
     pred_dir   = method_dir / "predictions"   # nii.gz 所在目录
     result_dir = method_dir                   # 报告 + viz 输出目录
@@ -436,7 +433,21 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     if predict:
         if not trainer:
             raise ValueError("--predict 需要同时指定 --trainer")
-        run_predict(method, trainer, fold, gpu, checkpoint, dataset)
+        if str(dataset).lstrip("0") == "3" and checkpoint == "checkpoint_best.pth":
+            # Source-only external evaluations must inherit the same checkpoint
+            # provenance gate as the internal best-only report.
+            from pumengyu.tools.run_internal_test_best_report import (
+                validate_best_checkpoint_provenance,
+            )
+            validate_best_checkpoint_provenance(trainer)
+        expected_cases = list(json.loads(INFO_FILE.read_text(encoding="utf-8")))
+        predictions_complete = all(
+            (pred_dir / f"{case}.nii.gz").is_file() for case in expected_cases
+        )
+        if predictions_complete and not force_predict:
+            print(f"[reuse] {method}: reuse {len(expected_cases)} existing predictions")
+        else:
+            run_predict(method, trainer, fold, gpu, checkpoint, dataset)
 
     if not pred_dir.is_dir():
         raise FileNotFoundError(f"预测目录不存在: {pred_dir}")
@@ -470,21 +481,18 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     report_path = result_dir / "report_custom.txt"
     report_path.write_text(report_text, encoding="utf-8")
 
-    all_cases_data  = has_tumor_cases + no_tumor_cases
-    false_pos_cases = [r for r in no_tumor_cases if r["pred_tumor"] > 0]
-    no_t_dices = [float("nan") if r["pred_tumor"] == 0 else 0.0 for r in no_tumor_cases]
-    all_dices  = [r["dice"] for r in has_tumor_cases] + no_t_dices
-    mean_tumor = float(np.nanmean(all_dices))
-    liver_dices = [r["liver_dice"] for r in all_cases_data]
-    mean_liver  = float(np.mean(liver_dices))
-    recalls    = [r["recall"]    for r in has_tumor_cases]
-    precisions = [r["precision"] for r in has_tumor_cases] + [0.0] * len(false_pos_cases)
-    fdrs       = [r["fdr"]       for r in has_tumor_cases] + [1.0] * len(false_pos_cases)
+    agg = aggregate_liver_tumor_metrics(has_tumor_cases, no_tumor_cases)
+    false_pos_cases = agg["false_positive_cases"]
+    mean_tumor = agg["primary"]["dice"]["mean"]
+    mean_liver = agg["liver"]["mean"]
 
     print(f"\n[报告] → {report_path}")
-    print(f"  Overall={(mean_liver + mean_tumor)/2:.4f}  Liver={mean_liver:.4f}  Tumor={mean_tumor:.4f}")
-    print(f"  Recall={np.mean(recalls):.4f}  Precision={np.mean(precisions):.4f}  FDR={np.mean(fdrs):.4f}")
-    print(f"  无肿瘤误报: {len(false_pos_cases)}/{len(no_tumor_cases)}")
+    print(f"  Overall={agg['primary']['overall']:.4f}  Liver={mean_liver:.4f}  Tumor={mean_tumor:.4f}")
+    print(f"  Recall={agg['primary']['recall']['mean']:.4f}  Precision={agg['primary']['precision']['mean']:.4f}  FDR={agg['primary']['fdr']['mean']:.4f}")
+    if no_tumor_cases:
+        print(f"  无肿瘤误报: {len(false_pos_cases)}/{len(no_tumor_cases)}")
+    else:
+        print("  无肿瘤误报: N/A（当前评估集无阴性 case）")
 
     # 5. 可视化 → method/test_viz/（复用 mixin 的 _gen_viz_pngs_and_cleanup）
     if no_vis:
@@ -503,12 +511,13 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
         min_voxel=min_voxel,
         delete_nii=False,   # 外部验证保留预测文件
     )
-    print(f"[完成] ExternalVal_IRCADb/{method}/")
+    print(f"[完成] IRCADb/source_only/{method}/")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
+    global EXT_RESULT_ROOT
     p = argparse.ArgumentParser()
     p.add_argument("--method",    required=True,
                    help="预测目录名，如 MoE_SizeOV4")
@@ -525,13 +534,18 @@ def main():
                    help="fold 编号（默认 0）")
     p.add_argument("--gpu",       type=int, default=1,
                    help="CUDA_VISIBLE_DEVICES（默认 1）")
-    p.add_argument("--checkpoint", default="",
-                   help="nnUNet checkpoint 文件名，如 checkpoint_best.pth；默认使用 nnUNetv2_predict 默认值")
+    p.add_argument("--checkpoint", default="checkpoint_best.pth",
+                   help="nnUNet checkpoint 文件名（默认且推荐：checkpoint_best.pth）")
     p.add_argument("--dataset", default="003",
                    help="预测使用的数据集 id/name，默认 003；HCC/MSD 混合模型应使用 013")
+    p.add_argument("--force_predict", action="store_true",
+                   help="即使预测文件齐全也强制重新推理；默认复用并只补报告/可视化")
+    p.add_argument("--result_root", default=str(EXT_RESULT_ROOT),
+                   help="外部验证输出根目录，默认 results_v2/IRCADb/source_only")
     args = p.parse_args()
+    EXT_RESULT_ROOT = Path(args.result_root)
     run(args.method, args.no_vis, args.predict, args.trainer, args.fold, args.gpu,
-        args.min_voxel, args.checkpoint, args.dataset)
+        args.min_voxel, args.checkpoint, args.dataset, args.force_predict)
 
 
 if __name__ == "__main__":

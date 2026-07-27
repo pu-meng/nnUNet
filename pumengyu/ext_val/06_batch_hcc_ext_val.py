@@ -5,7 +5,7 @@ By default this scans:
     /home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/*/fold_0/checkpoint_best.pth
 
 and evaluates each trainer on the 21 held-out HCC test cases recorded in:
-    preprocessed/Dataset013_HCCReferencedCT/split_info_701020_from_fold0.json
+    preprocessed/Dataset013_HCCReferencedCT/split_info_701020_stratified_v2.json
 """
 
 from __future__ import annotations
@@ -40,9 +40,9 @@ ALIASES = {
     "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5": "MoE_SizeOV5",
     "nnUNetTrainer_MLA_GK5_V4": "MLA_GK5_V4",
     "nnUNetTrainer_MedNeXt": "MedNeXt",
-    "nnUNetTrainer_MedNeXt_MLA": "MedNeXt_MLA",
-    "nnUNetTrainer_MedNeXt_MLA_FPSafe": "MedNeXt_MLA_FPSafe",
-    "nnUNetTrainer_MedNeXt_MLA_SizeOV4": "MedNeXt_MLA_SizeOV4",
+    "nnUNetTrainer_MedNeXt_MLA_MoE": "MedNeXt_MLA_MoE",
+    "nnUNetTrainer_MedNeXt_MLA_MoE_FPSafe": "MedNeXt_MLA_MoE_FPSafe",
+    "nnUNetTrainer_MedNeXt_MLA_MoE_SizeOV4": "MedNeXt_MLA_MoE_SizeOV4",
     "nnUNetTrainer_MedNeXt_SizeOV4": "MedNeXt_SizeOV4",
     "nnUNetTrainer_NoMirror": "NoMirror",
     "nnUNetTrainer_SizeOversampleV2": "SizeOV2",

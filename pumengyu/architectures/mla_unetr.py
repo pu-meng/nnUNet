@@ -97,6 +97,33 @@ class MultiHeadLatentAttention(nn.Module):
         return self.W_O(out)
 
 
+class MultiHeadSelfAttention(nn.Module):
+    """标准多头自注意力，用作 MLA 的严格单变量消融对照。"""
+
+    def __init__(self, d_model: int, num_heads: int, attn_drop: float = 0.0):
+        super().__init__()
+        assert d_model % num_heads == 0, "d_model 必须能被 num_heads 整除"
+        self.num_heads = num_heads
+        self.d_head = d_model // num_heads
+        self.scale = self.d_head ** -0.5
+        self.W_Q = nn.Linear(d_model, d_model, bias=False)
+        self.W_K = nn.Linear(d_model, d_model, bias=False)
+        self.W_V = nn.Linear(d_model, d_model, bias=False)
+        self.W_O = nn.Linear(d_model, d_model, bias=False)
+        self.attn_drop = nn.Dropout(attn_drop)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape
+        h, d = self.num_heads, self.d_head
+        q = self.W_Q(x).reshape(B, N, h, d).transpose(1, 2)
+        k = self.W_K(x).reshape(B, N, h, d).transpose(1, 2)
+        v = self.W_V(x).reshape(B, N, h, d).transpose(1, 2)
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = self.attn_drop(F.softmax(attn, dim=-1))
+        out = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        return self.W_O(out)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # MoE FFN（DeepSeek V3 风格：shared expert + loss-free bias 均衡）
 # ──────────────────────────────────────────────────────────────────────────────
@@ -231,6 +258,31 @@ class MLATransformerBlock(nn.Module):
         return x
 
 
+class MHATransformerBlock(MLATransformerBlock):
+    """与 MLATransformerBlock 完全相同，仅将 MLA 换成标准 MHA。"""
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        mlp_ratio: int = 4,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        use_moe: bool = True,
+    ):
+        # compression_ratio 在父类中只用于构造 attention；随后替换为 MHA。
+        super().__init__(
+            d_model=d_model,
+            num_heads=num_heads,
+            compression_ratio=1,
+            mlp_ratio=mlp_ratio,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            use_moe=use_moe,
+        )
+        self.attn = MultiHeadSelfAttention(d_model, num_heads, attn_drop)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 瓶颈 MLA 封装（3D 特征图 ↔ 序列）
 # ──────────────────────────────────────────────────────────────────────────────
@@ -274,6 +326,37 @@ class MLABottleneck3D(nn.Module):
 
         x_seq = x.flatten(2).transpose(1, 2)      # (B, N, C)
         x_seq = self.blocks(x_seq)
+        x_seq = self.norm(x_seq)
+        return x_seq.transpose(1, 2).reshape(B, C, *spatial).contiguous()
+
+
+class MHABottleneck3D(nn.Module):
+    """标准 MHA 瓶颈；除 attention 外与 MLABottleneck3D 保持一致。"""
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int = 8,
+        num_blocks: int = 2,
+        mlp_ratio: int = 4,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        use_moe: bool = True,
+    ):
+        super().__init__()
+        while d_model % num_heads != 0 and num_heads > 1:
+            num_heads //= 2
+        self.blocks = nn.Sequential(*[
+            MHATransformerBlock(
+                d_model, num_heads, mlp_ratio, attn_drop, proj_drop, use_moe=use_moe
+            )
+            for _ in range(num_blocks)
+        ])
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, *spatial = x.shape
+        x_seq = self.blocks(x.flatten(2).transpose(1, 2))
         x_seq = self.norm(x_seq)
         return x_seq.transpose(1, 2).reshape(B, C, *spatial).contiguous()
 

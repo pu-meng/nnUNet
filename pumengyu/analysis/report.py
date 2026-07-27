@@ -102,7 +102,8 @@ def build_report(
     if agg:
         lines += [
             "【模型性能摘要（来自 summary.json）】",
-            f"  Overall Dice      : {agg['overall']:.4f}",
+            f"  Tumor Dice (PMY-LT-v1, 仅GT阳性): {agg['tumor_dice']:.4f}",
+            f"  nnUNet tumor Dice 追溯参考    : {agg['nnunet_tumor_dice_reference']:.4f}",
             f"  有肿瘤 case 数    : {agg['n_tumor_cases']}",
             f"  无肿瘤 case 数    : {agg['n_notumor_cases']}",
             f"  无肿瘤误报        : {agg['n_fp_notumor']} / {agg['n_notumor_cases']}"

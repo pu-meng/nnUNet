@@ -1,9 +1,6 @@
-"""
-批量重新生成所有 fold 的 report_custom.txt。
-用法（在 nnUNet/ 根目录下执行）：
-    python pumengyu/tools/analyasis/batch_regen_reports.py
-"""
+"""批量重新生成所有 fold 的报告，默认同时生成可视化。"""
 
+import argparse
 from pathlib import Path
 from pumengyu.tools.analyasis.eval_fold_report import run_eval_report
 
@@ -12,6 +9,13 @@ PREPROCESSED_ROOT = Path("/home/PuMengYu/nnUNet_workspace/preprocessed")
 RAW_ROOT          = Path("/home/PuMengYu/nnUNet_workspace/raw")
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="仅在既有可视化已通过审计时使用；不生成新 PNG",
+    )
+    args = parser.parse_args()
     ok, fail = [], []
 
     for summary in sorted(RESULTS_ROOT.rglob("validation/summary.json")):
@@ -34,7 +38,7 @@ def main():
                 val_dir=val_dir,
                 gt_dir=gt_dir,
                 img_dir=img_dir,
-                no_vis=True,   # 跳过可视化，只更新 report_custom.txt
+                no_vis=args.report_only,
             )
             ok.append(str(fold_dir))
         except Exception as e:

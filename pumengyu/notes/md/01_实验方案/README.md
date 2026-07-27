@@ -834,7 +834,7 @@ DeepDWIBResGN_SizeOV4 < 0.833
 | MedNeXt-L | 61.8M | 参照基准 |
 | DeepPlainResGN | ~61M | 对齐成功，但效果差 |
 | **DeepDWIBResGN** | **58.1M** | ch=[32,64,128,256,512], enc blocks=[3,4,8,8,8], decoder=[4,4,4,3], r=8 |
-| DeepResGN_MLA | ~61M + MLA | 正在训练 |
+| DeepResGN_MLA | **67.9M** | DeepResGN + MLA bottleneck，总参数已统计 |
 
 ---
 

@@ -94,14 +94,9 @@ def eval_one_method(pred_dir: Path, cases: list, case_info: dict) -> dict:
 
 
 def comprehensive_dice(results: dict) -> float:
-    scores = []
-    for r in results.values():
-        if r is None:
-            continue
-        if r["has_tumor"]:
-            scores.append(r["tumor_dice"])
-        else:
-            scores.append(0.0 if r["is_fp"] else 1.0)
+    """PMY-LT-v1 positive-only Tumor Dice（旧函数名保留以兼容调用）。"""
+    scores = [r["tumor_dice"] for r in results.values()
+              if r is not None and r["has_tumor"]]
     return float(np.mean(scores)) if scores else float("nan")
 
 
@@ -145,41 +140,31 @@ def print_method_detail(method_name, pred_label, results, no_tumor_cases, out):
 
     t_vals = valid  # shorthand
 
-    # Dice for all cases (综合口径)
-    comp_scores = []
-    for k, v in valid.items():
-        if v["has_tumor"]:
-            comp_scores.append(v["tumor_dice"])
-        else:
-            comp_scores.append(0.0 if v["is_fp"] else 1.0)
+    # PMY-LT-v1：肿瘤指标仅在 GT 有肿瘤 case 上计算。
+    comp_scores = [valid[k]["tumor_dice"] for k in tumor_cases_r]
     jaccard_scores = [d / (2 - d) if (2 - d) > 0 else 0.0 for d in comp_scores]
 
     recall_vals    = [v["recall"]    for v in valid.values() if v["has_tumor"]]
     fnr_vals       = [v["fnr"]       for v in valid.values() if v["has_tumor"]]
-    # precision: has_tumor cases + FP no_tumor cases (FP -> precision=0)
-    prec_cases = [(v["precision"] if v["has_tumor"] else (0.0 if v["is_fp"] else None))
-                  for v in valid.values()]
-    prec_vals  = [p for p in prec_cases if p is not None]
-    fdr_cases  = [(v["fdr"] if v["has_tumor"] else (1.0 if v["is_fp"] else None))
-                  for v in valid.values()]
-    fdr_vals   = [f for f in fdr_cases if f is not None]
+    prec_vals = [v["precision"] for v in valid.values() if v["has_tumor"]]
+    fdr_vals = [v["fdr"] for v in valid.values() if v["has_tumor"]]
 
     n_tumor    = len(tumor_cases_r)
     n_nt_ok    = len([k for k in no_tumor_cases_r if not valid[k]["is_fp"]])
     n_nt_fp    = len(fp_cases)
     mean_tumor_dice = np.mean([valid[k]["tumor_dice"] for k in tumor_cases_r]) if tumor_cases_r else float("nan")
 
-    out(f"\nTumor 综合指标（共 {n_all} cases）")
-    out(f"  无肿瘤正确(pred=0)→Dice=1(约定)，无肿瘤误报(pred>0)→Dice=0(数学精确)")
-    out(f"  Dice        : mean={np.mean(comp_scores):.4f}  std={np.std(comp_scores):.4f}  (全 {n_all} cases)")
-    out(f"  Jaccard     : mean={np.mean(jaccard_scores):.4f}  std={np.std(jaccard_scores):.4f}  (全 {n_all} cases，同 Dice 约定)")
+    out(f"\nTumor 综合指标（PMY-LT-v1；仅 GT 有肿瘤 case）")
+    out(f"  无肿瘤 case (n={len(no_tumor_cases_r)}) 的 Tumor 指标统一为 N/A，误报单独报告")
+    out(f"  Dice        : mean={np.mean(comp_scores):.4f}  std={np.std(comp_scores):.4f}  (有肿瘤 n={n_tumor})")
+    out(f"  Jaccard     : mean={np.mean(jaccard_scores):.4f}  std={np.std(jaccard_scores):.4f}  (有肿瘤 n={n_tumor})")
     if recall_vals:
         out(f"  Recall      : mean={np.mean(recall_vals):.4f}  std={np.std(recall_vals):.4f}  (有肿瘤 n={n_tumor}，无肿瘤无GT故不计入)")
         out(f"  FNR         : mean={np.mean(fnr_vals):.4f}  std={np.std(fnr_vals):.4f}  (有肿瘤 n={n_tumor})")
     if prec_vals:
-        out(f"  Precision   : mean={np.mean(prec_vals):.4f}  std={np.std(prec_vals):.4f}  (有肿瘤 n={n_tumor} + 无肿瘤误报 n={n_nt_fp}，误报计0)")
-        out(f"  FDR         : mean={np.mean(fdr_vals):.4f}  std={np.std(fdr_vals):.4f}  (有肿瘤 n={n_tumor} + 无肿瘤误报 n={n_nt_fp}，误报计1)")
-    out(f"  构成        : 有肿瘤 n={n_tumor} mean={mean_tumor_dice:.4f}  |  无肿瘤正确(Dice=1) n={n_nt_ok}  |  无肿瘤误报(Dice=0) n={n_nt_fp}")
+        out(f"  Precision   : mean={np.mean(prec_vals):.4f}  std={np.std(prec_vals):.4f}  (有肿瘤 n={n_tumor})")
+        out(f"  FDR         : mean={np.mean(fdr_vals):.4f}  std={np.std(fdr_vals):.4f}  (有肿瘤 n={n_tumor})")
+    out(f"  构成        : 有肿瘤 n={n_tumor} mean={mean_tumor_dice:.4f} | 无肿瘤 n={len(no_tumor_cases_r)} (TN={n_nt_ok}, FP={n_nt_fp})")
 
     # ── 按大小分组 ─────────────────────────────────────────────────
     cats = ["极小(<5k)", "小(5k-50k)", "中等(50k-300k)", "大(>=300k)"]
@@ -265,7 +250,7 @@ def main():
     method_labels = {}
 
     out("=" * 90)
-    out(f"{'方法':<45} {'综合Dice':>8} {'肿瘤Dice':>9} {'肝脏Dice':>9} {'无肿瘤FP':>9}")
+    out(f"{'方法':<45} {'Overall':>8} {'肿瘤Dice':>9} {'肝脏Dice':>9} {'无肿瘤FP':>9}")
     out("=" * 90)
 
     for method_dir in method_dirs:
@@ -286,13 +271,13 @@ def main():
         if not valid:
             continue
 
-        comp_dice   = comprehensive_dice(valid)
         tumor_dices = [v["tumor_dice"] for v in valid.values() if v["has_tumor"]]
         liver_dices = [v["liver_dice"] for v in valid.values()]
         fp_cases    = [k for k, v in valid.items() if not v["has_tumor"] and v["is_fp"]]
 
         tumor_mean = float(np.mean(tumor_dices)) if tumor_dices else float("nan")
         liver_mean = float(np.mean(liver_dices)) if liver_dices else float("nan")
+        comp_dice = (tumor_mean + liver_mean) / 2
         fp_str     = f"{len(fp_cases)}/{len(no_tumor_cases)}"
 
         method_label = f"{method_dir.name} {label}"

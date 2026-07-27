@@ -1,9 +1,9 @@
-# 论文母稿：MedNeXt_MLA 肝肿瘤分割
+# 论文母稿：MedNeXt_MLA_MoE 肝肿瘤分割
 
 > 创建日期：2026-07-08  
 > 角色：中文母稿 / 材料总仓 / 思路展开稿。  
 > 写法：先尽量完整，不急着精炼；原始路径先保留，定稿前再删除或移到内部记录。  
-> 正式稿来源：后续从本文档剪裁、改写到 `正式论文v3_MedNeXt_MLA框架.md`。
+> 正式稿来源：后续从本文档剪裁、改写到 `正式论文v3_MedNeXt_MLA_MoE框架.md`。
 
 ---
 
@@ -98,8 +98,8 @@
 
 ```text
 论文写作状态.md -> 决策板，记录主线、结论、下一步
-论文母稿_MedNeXt_MLA_中文.md -> 材料总仓，把所有可用内容先写全
-正式论文v3_MedNeXt_MLA框架.md -> 后续从母稿剪裁出的正式论文
+论文母稿_MedNeXt_MLA_MoE_中文.md -> 材料总仓，把所有可用内容先写全
+正式论文v3_MedNeXt_MLA_MoE框架.md -> 后续从母稿剪裁出的正式论文
 ```
 
 当前不要追求精简，先追求“不丢材料、不丢思考、不丢证据”。
@@ -108,18 +108,18 @@
 
 ## 1. 当前一句话故事
 
-内部测试集 Dice 最高的模型，不一定是外部临床数据上最可靠的模型。MedNeXt 和 MedNeXt_SizeOV4 在 Dataset003/LiTS 风格内部测试集上取得最高 Overall，但在 IRCADb 外部验证中出现明显性能下降；相反，MedNeXt_MLA 内部并非第一，却在 IRCADb 上取得外部 Overall 第一，并显著减小 internal-external drop。本文进一步从 CT 视觉歧义角度分析模型错误来源：可见低密度阴影可能导致假阳性，等密度/无明显阴影肿瘤可能导致漏检，3D patch 推理还可能把邻近切片的肿瘤上下文延续到当前无肿瘤切片，引起边界过分割或邻近切片误判。
+内部测试集 Dice 最高的模型，不一定是外部临床数据上最可靠的模型。MedNeXt 和 MedNeXt_SizeOV4 在 Dataset003/LiTS 风格内部测试集上取得最高 Overall，但在 IRCADb 外部验证中出现明显性能下降；相反，MedNeXt_MLA_MoE 内部并非第一，却在 IRCADb 上取得外部 Overall 第一，并显著减小 internal-external drop。本文进一步从 CT 视觉歧义角度分析模型错误来源：可见低密度阴影可能导致假阳性，等密度/无明显阴影肿瘤可能导致漏检，3D patch 推理还可能把邻近切片的肿瘤上下文延续到当前无肿瘤切片，引起边界过分割或邻近切片误判。
 
 当前主模型：
 
 ```text
-nnUNetTrainer_MedNeXt_MLA
+nnUNetTrainer_MedNeXt_MLA_MoE
 ```
 
 当前主张：
 
 ```text
-MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床可靠性分析。
+MedNeXt_MLA_MoE 的价值不是内部刷榜，而是外部泛化稳定性和临床可靠性分析。
 ```
 
 ---
@@ -142,7 +142,7 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
 当前论文主线：
 
 ```text
-从内部高 Dice 到外部可靠性：基于 MedNeXt_MLA 的肝肿瘤分割跨数据集泛化与 CT 视觉歧义分析
+从内部高 Dice 到外部可靠性：基于 MedNeXt_MLA_MoE 的肝肿瘤分割跨数据集泛化与 CT 视觉歧义分析
 ```
 
 核心问题：
@@ -157,7 +157,7 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
 当前选定题目：
 
 ```text
-面向外部可靠性的肝肿瘤 CT 分割：基于 MedNeXt_MLA 的跨数据集验证与视觉歧义分析
+面向外部可靠性的肝肿瘤 CT 分割：基于 MedNeXt_MLA_MoE 的跨数据集验证与视觉歧义分析
 ```
 
 这个题目比“面向跨域泛化的 MedNeXt 瓶颈潜在注意力肝肿瘤分割”更稳，原因是它把论文价值放在外部可靠性、跨数据集验证和失败模式解释上，而不是只强调模型模块本身。
@@ -181,10 +181,10 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
    本文不只报告内部测试集 Dice，而是系统比较内部测试与外部验证的排名差异，指出肝肿瘤分割中“同域最高分”不等于“外部最可靠”。
 
 2. **方法贡献**  
-   在 MedNeXt-L 的最低分辨率 bottleneck 后插入低秩 Multi-head Latent Attention，构建 MedNeXt_MLA。该设计不改变 MedNeXt 局部卷积骨干、不引入额外标注，只在语义最抽象、空间分辨率最低的位置加入全局 liver-tumor context。
+   在 MedNeXt-L 的最低分辨率 bottleneck 后插入低秩 Multi-head Latent Attention，构建 MedNeXt_MLA_MoE。该设计不改变 MedNeXt 局部卷积骨干、不引入额外标注，只在语义最抽象、空间分辨率最低的位置加入全局 liver-tumor context。
 
 3. **实验证据贡献**  
-   在 Dataset003/LiTS 风格内部测试集和 3D-IRCADb 外部验证集上系统比较 nnU-Net、MedNeXt、SwinUNETR、nnFormer、MLAUNet、MoE、SizeOV 等方法。结果显示 MedNeXt_SizeOV4 内部 Overall 最高 0.8431，但外部下降到 0.7797；MedNeXt_MLA 内部 Overall 0.8259，外部 Overall 0.8079，成为外部第一，drop 仅 -0.0180。
+   在 Dataset003/LiTS 风格内部测试集和 3D-IRCADb 外部验证集上系统比较 nnU-Net、MedNeXt、SwinUNETR、nnFormer、MLAUNet、MoE、SizeOV 等方法。结果显示 MedNeXt_SizeOV4 内部 Overall 最高 0.8431，但外部下降到 0.7797；MedNeXt_MLA_MoE 内部 Overall 0.8259，外部 Overall 0.8079，成为外部第一，drop 仅 -0.0180。
 
 4. **失败模式分析贡献**  
    本文提出 Case/Slice 混合粒度视觉歧义框架，从阴影可见性、case-level 肿瘤状态、slice-level 视觉证据和 3D 上下文帮助与限制四个角度解释假阳性、漏检和边界误差来源。该框架说明模型错误不仅来自网络结构，还来自单期 CT 视觉证据不足和 3D patch 推理机制。
@@ -200,20 +200,20 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
 
 ```text
 本文不是单纯提出一个分割网络刷内部 Dice，而是围绕“内部高分模型是否真的外部可靠”这一问题，
-提出 MedNeXt_MLA，并结合跨数据集验证、无肿瘤误报、小肿瘤漏检和 CT 视觉歧义分析，
+提出 MedNeXt_MLA_MoE，并结合跨数据集验证、无肿瘤误报、小肿瘤漏检和 CT 视觉歧义分析，
 说明肝肿瘤 CT 分割需要从内部平均 Dice 转向外部可靠性和临床安全错误分析。
 ```
 
 #### 3.1.2 我的主要贡献
 
 1. **重新定义论文问题：从内部刷榜转向外部可靠性。**  
-   论文主线不是“我做了一个新模块所以内部 Dice 更高”，而是证明内部测试集表现最好的模型不一定是外部临床数据上最可靠的模型。MedNeXt 和 MedNeXt_SizeOV4 在内部 Dataset003 上更高，但外部 IRCADb drop 更大；MedNeXt_MLA 内部不是最高，却在外部验证中最稳。
+   论文主线不是“我做了一个新模块所以内部 Dice 更高”，而是证明内部测试集表现最好的模型不一定是外部临床数据上最可靠的模型。MedNeXt 和 MedNeXt_SizeOV4 在内部 Dataset003 上更高，但外部 IRCADb drop 更大；MedNeXt_MLA_MoE 内部不是最高，却在外部验证中最稳。
 
-2. **提出 MedNeXt_MLA：在强 MedNeXt 骨干上加入 bottleneck latent attention。**  
+2. **提出 MedNeXt_MLA_MoE：在强 MedNeXt 骨干上加入 bottleneck latent attention。**
    方法不是重写整个 U-Net，而是在 MedNeXt-L 最低分辨率 bottleneck 后插入低秩 Multi-head Latent Attention。这样保留 MedNeXt 的局部卷积强表征，同时在语义最抽象、计算成本最低的位置补充全局 liver-tumor context。
 
 3. **完成内部测试 + 外部验证的系统比较。**  
-   对比包括 nnU-Net Baseline、SizeOV、MLAUNet、MoE、SwinUNETR、nnFormer、MedNeXt、MedNeXt_SizeOV4、MedNeXt_MLA 等。核心结果是：MedNeXt_SizeOV4 内部 Overall 0.8431，但外部 0.7797；MedNeXt_MLA 内部 0.8259，但外部 0.8079，外部第一，drop 只有 -0.0180。
+   对比包括 nnU-Net Baseline、SizeOV、MLAUNet、MoE、SwinUNETR、nnFormer、MedNeXt、MedNeXt_SizeOV4、MedNeXt_MLA_MoE 等。核心结果是：MedNeXt_SizeOV4 内部 Overall 0.8431，但外部 0.7797；MedNeXt_MLA_MoE 内部 0.8259，但外部 0.8079，外部第一，drop 只有 -0.0180。
 
 4. **提出 CT 视觉歧义与失败模式分析。**  
    论文不只报平均 Dice，而是解释模型为什么错：有低密度阴影但不是肿瘤会导致假阳性；真实肿瘤在单期 CT 上可能接近等密度、无明显阴影，导致漏检；3D patch 上下文既能帮助连续切片判断，也可能把邻近切片的 tumor response 延续到当前无肿瘤切片。
@@ -222,7 +222,7 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
    除 Liver/Tumor Dice 和 Overall 外，加入 no-tumor FP rate、Recall、Precision、FDR、FPV/FNV 体积误差和 case-level 可视化，避免平均 Dice 掩盖无肿瘤误报和真实肿瘤漏检。
 
 6. **保留负结果，形成更可信的消融逻辑。**  
-   SizeOV4 能提高内部表现，但不能解释 MedNeXt_MLA 的外部收益；FPSafe 能改善内部 FP，但外部退化；NoMirror 内部上升但外部崩溃。这些结果共同说明：外部可靠性不是简单采样、关闭增强或 FP loss 就能解决。
+   SizeOV4 能提高内部表现，但不能解释 MedNeXt_MLA_MoE 的外部收益；FPSafe 能改善内部 FP，但外部退化；NoMirror 内部上升但外部崩溃。这些结果共同说明：外部可靠性不是简单采样、关闭增强或 FP loss 就能解决。
 
 #### 3.1.3 创新点怎么表述更稳
 
@@ -245,22 +245,22 @@ MedNeXt_MLA 的价值不是内部刷榜，而是外部泛化稳定性和临床�
 注意：不要把创新点说成“我内部 Dice 最高”。当前数据不支持这个说法。更稳的说法是：
 
 ```text
-MedNeXt_MLA 的价值在于外部验证稳定性和错误模式解释，而不是内部测试集刷榜。
+MedNeXt_MLA_MoE 的价值在于外部验证稳定性和错误模式解释，而不是内部测试集刷榜。
 ```
 
 #### 3.1.4 目前最重要的发现
 
 1. **内部第一和外部第一不一致。**  
-   MedNeXt_SizeOV4 内部 Overall 最高 0.8431，但外部 0.7797；MedNeXt_MLA 内部 0.8259，但外部 0.8079。
+   MedNeXt_SizeOV4 内部 Overall 最高 0.8431，但外部 0.7797；MedNeXt_MLA_MoE 内部 0.8259，但外部 0.8079。
 
-2. **MedNeXt_MLA 的收益主要体现在外部稳定性。**  
-   MedNeXt 外部 drop 为 -0.0697，MedNeXt_SizeOV4 为 -0.0634，MedNeXt_MLA 只有 -0.0180。
+2. **MedNeXt_MLA_MoE 的收益主要体现在外部稳定性。**
+   MedNeXt 外部 drop 为 -0.0697，MedNeXt_SizeOV4 为 -0.0634，MedNeXt_MLA_MoE 只有 -0.0180。
 
 3. **SizeOV4 不是外部收益主因。**  
-   MedNeXt_MLA_SizeOV4 外部 0.7870，低于 MedNeXt_MLA 0.8079，说明采样不能解释 MLA 的外部优势。
+   MedNeXt_MLA_MoE_SizeOV4 外部 0.7870，低于 MedNeXt_MLA_MoE 0.8079，说明采样不能解释 MLA 的外部优势。
 
 4. **显式 FP 抑制不是跨域安全的充分条件。**  
-   MedNeXt_MLA_FPSafe 内部 Overall 0.8326，高于 MedNeXt_MLA 的 0.8259，但外部降到 0.7744，说明源域 FP 控制可能不具备跨域稳定性。
+   MedNeXt_MLA_MoE_FPSafe 内部 Overall 0.8326，高于 MedNeXt_MLA_MoE 的 0.8259，但外部降到 0.7744，说明源域 FP 控制可能不具备跨域稳定性。
 
 5. **CT 视觉歧义是论文深度来源。**  
    题目可以保留“跨数据集泛化”，但正文必须加入 CT 视觉歧义和临床安全错误分析。论文深度不只来自外部验证数字，而来自对失败模式的解释。
@@ -271,10 +271,10 @@ MedNeXt_MLA 的价值在于外部验证稳定性和错误模式解释，而不�
 #### 3.1.5 当前最稳的论文主张
 
 ```text
-本文提出的 MedNeXt_MLA 并不是在内部测试集上追求最高 Dice 的模型，
+本文提出的 MedNeXt_MLA_MoE 并不是在内部测试集上追求最高 Dice 的模型，
 而是一个面向外部可靠性的 MedNeXt 变体。通过在 bottleneck 引入低秩 latent attention，
 模型在保持强局部卷积骨干的同时获得全局上下文建模能力。实验显示，
-MedNeXt_MLA 在 Dataset003 内部测试中不是最高分，但在 IRCADb 外部验证中取得最高 Overall，
+MedNeXt_MLA_MoE 在 Dataset003 内部测试中不是最高分，但在 IRCADb 外部验证中取得最高 Overall，
 并显著减小 internal-external drop。进一步的 case-level 分析表明，
 肝肿瘤 CT 分割错误与单期 CT 视觉歧义、无肿瘤误报、小/隐匿肿瘤漏检以及 3D 上下文传播有关。
 因此，肝肿瘤分割评价应从内部平均 Dice 扩展到外部验证、临床安全指标和失败模式解释。
@@ -285,7 +285,7 @@ MedNeXt_MLA 在 Dataset003 内部测试中不是最高分，但在 IRCADb 外部
 问导师时可以直接带这几个问题：
 
 1. **题目是否合适？**  
-   当前题目是“面向外部可靠性的肝肿瘤 CT 分割：基于 MedNeXt_MLA 的跨数据集验证与视觉歧义分析”。请老师判断“外部可靠性 / 跨数据集验证 / 视觉歧义分析”这个组合是否适合作为论文标题主线。
+   当前题目是“面向外部可靠性的肝肿瘤 CT 分割：基于 MedNeXt_MLA_MoE 的跨数据集验证与视觉歧义分析”。请老师判断“外部可靠性 / 跨数据集验证 / 视觉歧义分析”这个组合是否适合作为论文标题主线。
 
 2. **创新点是否够集中？**  
    当前把创新分成方法创新、外部验证证据、视觉歧义解释和临床安全分析。请老师判断是否太散，还是应该压缩成 2-3 个核心贡献。
@@ -327,7 +327,7 @@ test cases: 26
 当前主模型内部 report：
 
 ```text
-/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt
+/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt
 ```
 
 ### 4.2 外部数据：3D-IRCADb
@@ -344,13 +344,13 @@ n = 20
 外部 report 来源：
 
 ```text
-/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb/*/report_custom.txt
+/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/*/report_custom.txt
 ```
 
 当前主模型外部 report：
 
 ```text
-/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb/MedNeXt_MLA/report_custom.txt
+/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt
 ```
 
 IRCADb 转换脚本：
@@ -432,13 +432,13 @@ normalization = CTNormalization
 sanity trainer：
 
 ```text
-nnUNetTrainer_MedNeXt_MLA_HCCRefOnly
+nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly
 ```
 
 命令：
 
 ```bash
-nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_HCCRefOnly
+nnUNetv2_train 13 3d_fullres 0 -tr nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly
 ```
 
 HCC 线写作定位：
@@ -485,12 +485,12 @@ Overall = (Liver Dice + Tumor Dice) / 2
 
 ## 6. 主模型结果与排名
 
-### 6.1 MedNeXt_MLA 结果
+### 6.1 MedNeXt_MLA_MoE 结果
 
 主模型：
 
 ```text
-nnUNetTrainer_MedNeXt_MLA
+nnUNetTrainer_MedNeXt_MLA_MoE
 ```
 
 | 指标 | 内部 Dataset003 Test | 外部 IRCADb |
@@ -513,7 +513,7 @@ nnUNetTrainer_MedNeXt_MLA
 写作时必须强调：
 
 ```text
-MedNeXt_MLA 不是内部最优模型。
+MedNeXt_MLA_MoE 不是内部最优模型。
 它的优势是外部验证第一和 internal-external drop 小。
 ```
 
@@ -524,22 +524,22 @@ MedNeXt_MLA 不是内部最优模型。
 | 1 | MedNeXt_SizeOV4 | 0.8431 | 0.9545 | 0.7317 | 0.7361 | 0.8187 | 33% (1/3) | 内部最强 |
 | 2 | MedNeXt | 0.8402 | 0.9521 | 0.7283 | 0.7334 | 0.8128 | 33% (1/3) | 强 published baseline |
 | 3 | MLAUNet_MoE_SizeOV4 | 0.8330 | 0.9514 | 0.7146 | 0.7140 | 0.7776 | 33% (1/3) | 旧自研主线 |
-| 4 | MedNeXt_MLA_FPSafe | 0.8326 | 0.9510 | 0.7143 | 0.7171 | 0.7741 | 33% (1/3) | FP loss 负/中性消融 |
-| 5 | MedNeXt_MLA_SizeOV4 | 0.8285 | 0.9529 | 0.7040 | 0.7459 | 0.7775 | 67% (2/3) | MedNeXt_MLA + sampling 消融 |
-| 6 | MedNeXt_MLA | 0.8259 | 0.9535 | 0.6982 | 0.7323 | 0.7921 | 67% (2/3) | 当前主模型，内部非最优 |
+| 4 | MedNeXt_MLA_MoE_FPSafe | 0.8326 | 0.9510 | 0.7143 | 0.7171 | 0.7741 | 33% (1/3) | FP loss 负/中性消融 |
+| 5 | MedNeXt_MLA_MoE_SizeOV4 | 0.8285 | 0.9529 | 0.7040 | 0.7459 | 0.7775 | 67% (2/3) | MedNeXt_MLA_MoE + sampling 消融 |
+| 6 | MedNeXt_MLA_MoE | 0.8259 | 0.9535 | 0.6982 | 0.7323 | 0.7921 | 67% (2/3) | 当前主模型，内部非最优 |
 
 内部结论：
 
 1. MedNeXt 系列同域能力最强。
 2. MedNeXt_SizeOV4 内部 Overall 最高。
-3. MedNeXt_MLA 内部不是第一，因此本文不能写“内部最强”。
-4. 内部结果只能说明 MedNeXt_MLA 保持了较强性能，不是它的主要卖点。
+3. MedNeXt_MLA_MoE 内部不是第一，因此本文不能写“内部最强”。
+4. 内部结果只能说明 MedNeXt_MLA_MoE 保持了较强性能，不是它的主要卖点。
 
 ### 6.3 外部 IRCADb 前几名
 
 | Rank | Method | Overall | Liver | Tumor | Recall | Precision | FP率 | 内部 Overall | Overall 外-内 Drop | 定位 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| 1 | MedNeXt_MLA | 0.8079 | 0.9673 | 0.6484 | 0.6665 | 0.7437 | 40% (2/5) | 0.8259 | -0.0180 | 外部 Overall 第一，当前主模型 |
+| 1 | MedNeXt_MLA_MoE | 0.8079 | 0.9673 | 0.6484 | 0.6665 | 0.7437 | 40% (2/5) | 0.8259 | -0.0180 | 外部 Overall 第一，当前主模型 |
 | 2 | MoE_SizeOV5 | 0.8025 | 0.9679 | 0.6371 | 0.6437 | 0.7464 | 40% (2/5) | 0.8167 | -0.0142 | 外部稳定自研对照 |
 | 3 | MLAUNet | 0.8008 | 0.9675 | 0.6341 | 0.6320 | 0.7580 | 40% (2/5) | 0.8148 | -0.0140 | 外部稳定自研对照 |
 | 4 | SizeOV2 | 0.7992 | 0.9676 | 0.6307 | 0.6352 | 0.7547 | 40% (2/5) | 0.8187 | -0.0195 | 采样策略对照 |
@@ -549,14 +549,14 @@ MedNeXt_MLA 不是内部最优模型。
 
 外部结论：
 
-1. MedNeXt_MLA 是当前外部 Overall 第一。
+1. MedNeXt_MLA_MoE 是当前外部 Overall 第一。
 2. 外部 Top 5 里多个方法来自 MLA/MoE/SizeOV 探索族，说明全局上下文和相关策略对外部泛化有价值。
 3. MedNeXt 和 MedNeXt_SizeOV4 内部强，但外部 drop 大，形成内部-外部排名反转。
 4. 这是本文最重要的证据：高同域 Dice 不等于外部临床可靠。
 
 ### 6.4 内部-外部排名反转与 Drop 分析
 
-这一节是主结果的关键写法。MedNeXt_MLA 不应被包装成“内部 Dice 最高”的模型，而应被定位为：
+这一节是主结果的关键写法。MedNeXt_MLA_MoE 不应被包装成“内部 Dice 最高”的模型，而应被定位为：
 
 ```text
 内部同域性能保持较强，但真正优势体现在外部 IRCADb 上的排名、Tumor Dice、Precision 和稳定性。
@@ -582,14 +582,14 @@ Overall_external - Overall_internal
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | MedNeXt_SizeOV4 | 0.8431 | 1 | 0.7797 | 13 | -12 | -0.0634 | -0.1374 | +0.0106 | 内部最高，但外部明显下降 |
 | MedNeXt | 0.8402 | 2 | 0.7705 | 16 | -14 | -0.0697 | -0.1533 | +0.0139 | 强 published baseline，但跨数据集损失最大 |
-| MedNeXt_MLA | 0.8259 | 6 | 0.8079 | 1 | +5 | -0.0180 | -0.0498 | +0.0138 | 内部非最优，但外部第一，drop 明显更小 |
+| MedNeXt_MLA_MoE | 0.8259 | 6 | 0.8079 | 1 | +5 | -0.0180 | -0.0498 | +0.0138 | 内部非最优，但外部第一，drop 明显更小 |
 
 主结果解释：
 
 ```text
 MedNeXt_SizeOV4 和 MedNeXt 在内部 Dataset003 上分别排名第 1 和第 2，
 但在 IRCADb 外部验证中下降到第 13 和第 16。
-相反，MedNeXt_MLA 内部 Overall 仅排名第 6，
+相反，MedNeXt_MLA_MoE 内部 Overall 仅排名第 6，
 但外部 Overall 排名第 1，并且 Overall Drop 只有 -0.0180。
 ```
 
@@ -600,12 +600,12 @@ MedNeXt_SizeOV4 和 MedNeXt 在内部 Dataset003 上分别排名第 1 和第 2�
 同域 Dice 最高的模型不一定是外部临床数据上最可靠的模型。
 ```
 
-更具体地看，MedNeXt_MLA 的 liver Dice 在外部并没有下降，反而从 0.9535 到 0.9673，小幅上升；真正发生跨数据集损失的是 tumor Dice。相比 MedNeXt 和 MedNeXt_SizeOV4，MedNeXt_MLA 的 tumor Dice drop 更小：
+更具体地看，MedNeXt_MLA_MoE 的 liver Dice 在外部并没有下降，反而从 0.9535 到 0.9673，小幅上升；真正发生跨数据集损失的是 tumor Dice。相比 MedNeXt 和 MedNeXt_SizeOV4，MedNeXt_MLA_MoE 的 tumor Dice drop 更小：
 
 ```text
 MedNeXt tumor drop:          0.5750 - 0.7283 = -0.1533
 MedNeXt_SizeOV4 tumor drop:  0.5943 - 0.7317 = -0.1374
-MedNeXt_MLA tumor drop:      0.6484 - 0.6982 = -0.0498
+MedNeXt_MLA_MoE tumor drop:      0.6484 - 0.6982 = -0.0498
 ```
 
 因此，bottleneck latent attention 的结果不能简单表述为“提高内部 Dice”。更准确的论文表述是：
@@ -626,7 +626,7 @@ but it substantially reduces the tumor segmentation degradation under external v
 
 ---
 
-## 7. MedNeXt_MLA 方法
+## 7. MedNeXt_MLA_MoE 方法
 
 ### 7.1 MedNeXt-L 骨干
 
@@ -663,7 +663,7 @@ Residual
 
 ### 7.2 MLABottleneck3D
 
-MedNeXt_MLA 的核心改动：
+MedNeXt_MLA_MoE 的核心改动：
 
 ```text
 Input CT
@@ -725,7 +725,7 @@ mlp_ratio = 4
 MLA：
 
 ```text
-保留为核心结构思想，但最终落点从 MLAUNet 转到 MedNeXt_MLA。
+保留为核心结构思想，但最终落点从 MLAUNet 转到 MedNeXt_MLA_MoE。
 ```
 
 MoE：
@@ -739,7 +739,7 @@ SizeOV：
 
 ```text
 不写成主创新。
-作为采样策略对照，尤其用于证明采样不能解释 MedNeXt_MLA 的外部收益。
+作为采样策略对照，尤其用于证明采样不能解释 MedNeXt_MLA_MoE 的外部收益。
 ```
 
 FPSafe：
@@ -757,15 +757,15 @@ FPSafe：
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | MedNeXt | 0.8402 | 0.7705 | -0.0697 | 0.7283 | 0.5750 | 0.6554 | 0.6564 | 60% |
 | MedNeXt_SizeOV4 | 0.8431 | 0.7797 | -0.0634 | 0.7317 | 0.5943 | 0.6500 | 0.6795 | 60% |
-| MedNeXt_MLA | 0.8259 | 0.8079 | -0.0180 | 0.6982 | 0.6484 | 0.6665 | 0.7437 | 40% |
-| MedNeXt_MLA_SizeOV4 | 0.8285 | 0.7870 | -0.0415 | 0.7040 | 0.6091 | 0.6580 | 0.7019 | 60% |
-| MedNeXt_MLA_FPSafe | 0.8326 | 0.7744 | -0.0582 | 0.7143 | 0.5852 | 0.6442 | 0.6711 | 60% |
+| MedNeXt_MLA_MoE | 0.8259 | 0.8079 | -0.0180 | 0.6982 | 0.6484 | 0.6665 | 0.7437 | 40% |
+| MedNeXt_MLA_MoE_SizeOV4 | 0.8285 | 0.7870 | -0.0415 | 0.7040 | 0.6091 | 0.6580 | 0.7019 | 60% |
+| MedNeXt_MLA_MoE_FPSafe | 0.8326 | 0.7744 | -0.0582 | 0.7143 | 0.5852 | 0.6442 | 0.6711 | 60% |
 
 消融结论：
 
 1. MedNeXt 和 MedNeXt_SizeOV4 内部最强，但外部 drop 最大。
-2. MedNeXt_MLA 内部下降，但外部上升，是跨域最稳的 MedNeXt 变体。
-3. SizeOV4 不能解释外部收益。MedNeXt_MLA_SizeOV4 外部 0.7870，低于 MedNeXt_MLA 0.8079。
+2. MedNeXt_MLA_MoE 内部下降，但外部上升，是跨域最稳的 MedNeXt 变体。
+3. SizeOV4 不能解释外部收益。MedNeXt_MLA_MoE_SizeOV4 外部 0.7870，低于 MedNeXt_MLA_MoE 0.8079。
 4. FPSafe 不能作为最终方法。它内部 0.8326，但外部 0.7744，FP 率仍为 60%。
 5. 因此，当前证据支持“bottleneck latent attention 主要改善外部泛化”，而不是“采样或 FP loss 单独带来收益”。
 
@@ -960,7 +960,7 @@ MedNeXt / MedNeXt_SizeOV4 是内部同域能力最强的路线，
 这正是本文“内部最高 Dice 不等于外部临床可靠”的核心证据之一。
 ```
 
-#### 8.1.4 MedNeXt -> MedNeXt_MLA：外部验证指标明显上升
+#### 8.1.4 MedNeXt -> MedNeXt_MLA_MoE：外部验证指标明显上升
 
 改动：
 
@@ -972,17 +972,17 @@ MedNeXt / MedNeXt_SizeOV4 是内部同域能力最强的路线，
 
 ```text
 MedNeXt 内部 Overall:     0.8402
-MedNeXt_MLA 内部 Overall: 0.8259
+MedNeXt_MLA_MoE 内部 Overall: 0.8259
 ```
 
-内部并没有上升，反而下降。因此不能把 MedNeXt_MLA 写成内部最强。
+内部并没有上升，反而下降。因此不能把 MedNeXt_MLA_MoE 写成内部最强。
 
 外部 IRCADb 结果：
 
 ```text
 MedNeXt 外部 Overall:         0.7705
 MedNeXt_SizeOV4 外部 Overall: 0.7797
-MedNeXt_MLA 外部 Overall:     0.8079
+MedNeXt_MLA_MoE 外部 Overall:     0.8079
 ```
 
 相对 MedNeXt 的外部提升：
@@ -999,7 +999,7 @@ Overall Drop: -0.0697 -> -0.0180
 
 ```text
 这是本文最重要的“跃升点”。
-MedNeXt_MLA 的价值不是内部刷榜，而是外部 IRCADb 上明显提升肿瘤分割和 Precision，
+MedNeXt_MLA_MoE 的价值不是内部刷榜，而是外部 IRCADb 上明显提升肿瘤分割和 Precision，
 同时显著减小 internal-external drop。
 ```
 
@@ -1035,24 +1035,24 @@ MedNeXt 外部 Overall:         0.7705
 MedNeXt_SizeOV4 外部 Overall: 0.7797
 ```
 
-外部只小幅恢复，仍低于 MedNeXt_MLA：
+外部只小幅恢复，仍低于 MedNeXt_MLA_MoE：
 
 ```text
-MedNeXt_MLA 外部 Overall: 0.8079
+MedNeXt_MLA_MoE 外部 Overall: 0.8079
 ```
 
-在 MedNeXt_MLA 上叠加 SizeOV4：
+在 MedNeXt_MLA_MoE 上叠加 SizeOV4：
 
 ```text
-MedNeXt_MLA 外部 Overall:         0.8079
-MedNeXt_MLA_SizeOV4 外部 Overall: 0.7870
+MedNeXt_MLA_MoE 外部 Overall:         0.8079
+MedNeXt_MLA_MoE_SizeOV4 外部 Overall: 0.7870
 ```
 
 结论：
 
 ```text
 SizeOV4 是内部上分技巧或采样对照，不是外部泛化主因。
-它不能解释 MedNeXt_MLA 的外部收益。
+它不能解释 MedNeXt_MLA_MoE 的外部收益。
 ```
 
 论文定位：
@@ -1062,19 +1062,19 @@ SizeOV4 是内部上分技巧或采样对照，不是外部泛化主因。
 用于证明最终收益不是简单来自采样，而是来自 bottleneck MLA。
 ```
 
-#### 8.1.6 MedNeXt_MLA_FPSafe：内部 FP 改善，但外部退化
+#### 8.1.6 MedNeXt_MLA_MoE_FPSafe：内部 FP 改善，但外部退化
 
 改动：
 
 ```text
-在 MedNeXt_MLA 上加入 FP-safe / false-positive 控制。
+在 MedNeXt_MLA_MoE 上加入 FP-safe / false-positive 控制。
 ```
 
 内部结果：
 
 ```text
-MedNeXt_MLA 内部 Overall:        0.8259
-MedNeXt_MLA_FPSafe 内部 Overall: 0.8326
+MedNeXt_MLA_MoE 内部 Overall:        0.8259
+MedNeXt_MLA_MoE_FPSafe 内部 Overall: 0.8326
 内部 FP 率: 67% -> 33%
 ```
 
@@ -1083,8 +1083,8 @@ MedNeXt_MLA_FPSafe 内部 Overall: 0.8326
 外部结果：
 
 ```text
-MedNeXt_MLA 外部 Overall:        0.8079
-MedNeXt_MLA_FPSafe 外部 Overall: 0.7744
+MedNeXt_MLA_MoE 外部 Overall:        0.8079
+MedNeXt_MLA_MoE_FPSafe 外部 Overall: 0.7744
 外部 FP 率仍为 60%
 ```
 
@@ -1127,7 +1127,7 @@ It reduces internal no-tumor false alarms while degrading external tumor segment
 中文正式稿可写为：
 
 ```text
-MedNeXt_MLA_FPSafe 在内部测试集上降低了无肿瘤病例误报并提高 Overall，
+MedNeXt_MLA_MoE_FPSafe 在内部测试集上降低了无肿瘤病例误报并提高 Overall，
 但在外部 IRCADb 上 Overall 明显下降，且无肿瘤误报并未同步改善。
 这说明基于源域负样本学习到的 FP 抑制策略可能具有明显数据集依赖性：
 它可以记住 Dataset003 中常见的无肿瘤背景模式，却不一定形成跨机构通用的非肿瘤判别规则。
@@ -1282,7 +1282,7 @@ slice-level shadow visibility:
 ```text
 case: ircadb_014
 dataset: External IRCADb
-model: MedNeXt_MLA
+model: MedNeXt_MLA_MoE
 slice: z=45
 GT tumor: 0 voxels
 TP: 0
@@ -1290,7 +1290,7 @@ FP: 673
 FN: 0
 ```
 
-![ircadb_014 z45 MedNeXt_MLA no-tumor false positive](figures/ircadb_014_z45_mednext_mla_fp.png)
+![ircadb_014 z45 MedNeXt_MLA_MoE no-tumor false positive](figures/ircadb_014_z45_mednext_mla_fp.png)
 
 图像观察：
 
@@ -1303,7 +1303,7 @@ FN: 0
 可写入正式论文的解释：
 
 ```text
-在 ircadb_014 的 z=45 切片中，GT 无肿瘤标注，但 MedNeXt_MLA 在肝脏边缘附近预测出
+在 ircadb_014 的 z=45 切片中，GT 无肿瘤标注，但 MedNeXt_MLA_MoE 在肝脏边缘附近预测出
 紧凑的假阳性肿瘤区域。该区域在原始 CT 上呈规则圆形低密度阴影，视觉上具有肿瘤样外观。
 这一 case 说明，单期 CT 中“低密度阴影”并不必然等于肿瘤，但模型容易将其作为肿瘤候选，
 从而在无肿瘤病例中产生假阳性。
@@ -1314,7 +1314,7 @@ FN: 0
 ```text
 case: liver_41
 dataset: Dataset003_Liver internal test
-model: MedNeXt_MLA
+model: MedNeXt_MLA_MoE
 GT tumor: 0 voxels
 pred_tumor: 30,959 voxels
 ```
@@ -1335,14 +1335,14 @@ liver_41 肝脏内存在大面积弥漫性低密度阴影，GT 无肿瘤。
 liver_41 可作为 Supplementary 或内部一致性补充，说明类似视觉歧义在内部测试集中也存在。
 ```
 
-注意：不同模型下 liver_41 的误报体素数略有不同，写论文时要明确对应哪个模型。旧 MLAUNet_MoE_SizeOV4 分析中，liver_41 pred_tumor 约 31,368；当前 MedNeXt_MLA 内部 report 中为 30,959。
+注意：不同模型下 liver_41 的误报体素数略有不同，写论文时要明确对应哪个模型。旧 MLAUNet_MoE_SizeOV4 分析中，liver_41 pred_tumor 约 31,368；当前 MedNeXt_MLA_MoE 内部 report 中为 30,959。
 
 边界反例：无明显阴影但仍出现 FP
 
 ```text
 case: ircadb_008
 dataset: External IRCADb
-model: MedNeXt_MLA
+model: MedNeXt_MLA_MoE
 slice: z=96
 GT tumor: 0 voxels
 TP: 0
@@ -1350,7 +1350,7 @@ FP: 848
 FN: 0
 ```
 
-![ircadb_008 z96 MedNeXt_MLA no-obvious-shadow false positive](figures/ircadb_008_z96_mednext_mla_unexplained_fp.png)
+![ircadb_008 z96 MedNeXt_MLA_MoE no-obvious-shadow false positive](figures/ircadb_008_z96_mednext_mla_unexplained_fp.png)
 
 图像观察：
 
@@ -1418,34 +1418,34 @@ liver_127
 ```text
 case: ircadb_015
 dataset: External IRCADb
-model: MedNeXt_MLA
+model: MedNeXt_MLA_MoE
 analysis level: slice-level within a case-level tumor-positive patient
 ```
 
 该 case 的价值在于展示同一病灶在连续切片中的视觉证据变化：部分切片肿瘤近等密度或阴影极淡，模型完全漏检；相邻切片中病灶边界和低密度表现逐渐清楚后，模型开始预测出肿瘤主体。
 
-![ircadb_015 z102 MedNeXt_MLA false negative](figures/ircadb_015_z102_mednext_mla_fn.png)
+![ircadb_015 z102 MedNeXt_MLA_MoE false negative](figures/ircadb_015_z102_mednext_mla_fn.png)
 
 ```text
 z=102: GT=113 voxels, TP=0, FP=0, FN=113。
-该切片病灶接近等密度/极淡阴影，MedNeXt_MLA 完全漏检。
+该切片病灶接近等密度/极淡阴影，MedNeXt_MLA_MoE 完全漏检。
 ```
 
-![ircadb_015 z103 MedNeXt_MLA partial detection](figures/ircadb_015_z103_mednext_mla_partial.png)
+![ircadb_015 z103 MedNeXt_MLA_MoE partial detection](figures/ircadb_015_z103_mednext_mla_partial.png)
 
 ```text
 z=103: GT=193 voxels, TP=100, FP=0, FN=93。
 病灶轮廓和低密度表现略增强，模型开始识别一部分肿瘤。
 ```
 
-![ircadb_015 z104 MedNeXt_MLA partial detection](figures/ircadb_015_z104_mednext_mla_partial.png)
+![ircadb_015 z104 MedNeXt_MLA_MoE partial detection](figures/ircadb_015_z104_mednext_mla_partial.png)
 
 ```text
 z=104: GT=218 voxels, TP=183, FP=4, FN=35。
 视觉证据进一步增强，模型基本覆盖肿瘤主体，但仍有少量边界误差。
 ```
 
-![ircadb_015 z106 MedNeXt_MLA partial detection](figures/ircadb_015_z106_mednext_mla_partial.png)
+![ircadb_015 z106 MedNeXt_MLA_MoE partial detection](figures/ircadb_015_z106_mednext_mla_partial.png)
 
 ```text
 z=106: GT=402 voxels, TP=262, FP=0, FN=140。
@@ -1480,11 +1480,11 @@ z=103: GT=193, TP=100, FP=0, FN=93   -> 相邻切片开始部分识别
 z=104: GT=218, TP=183, FP=4, FN=35   -> 视觉证据增强后基本识别主体
 ```
 
-![ircadb_015 z102 MedNeXt_MLA false negative](figures/ircadb_015_z102_mednext_mla_fn.png)
+![ircadb_015 z102 MedNeXt_MLA_MoE false negative](figures/ircadb_015_z102_mednext_mla_fn.png)
 
-![ircadb_015 z103 MedNeXt_MLA partial detection](figures/ircadb_015_z103_mednext_mla_partial.png)
+![ircadb_015 z103 MedNeXt_MLA_MoE partial detection](figures/ircadb_015_z103_mednext_mla_partial.png)
 
-![ircadb_015 z104 MedNeXt_MLA partial detection](figures/ircadb_015_z104_mednext_mla_partial.png)
+![ircadb_015 z104 MedNeXt_MLA_MoE partial detection](figures/ircadb_015_z104_mednext_mla_partial.png)
 
 图注草稿：
 
@@ -1596,16 +1596,16 @@ Discussion 或 Supplementary。
 
 ## 11. FPSafe 与 MSDHCCMix 负结果
 
-### 11.1 MedNeXt_MLA_FPSafe
+### 11.1 MedNeXt_MLA_MoE_FPSafe
 
 代码真实逻辑：
 
 ```text
 trainer:
-  nnUNetTrainer_MedNeXt_MLA_FPSafe
+  nnUNetTrainer_MedNeXt_MLA_MoE_FPSafe
 
 继承关系:
-  TopKNoTumorFPPenaltyMixin + nnUNetTrainer_MedNeXt_MLA
+  TopKNoTumorFPPenaltyMixin + nnUNetTrainer_MedNeXt_MLA_MoE
 
 代码位置:
   pumengyu/trainers/trainer.py
@@ -1698,19 +1698,19 @@ patch-level Top-K FP 惩罚可能进一步压低这类响应，
 可写入正式论文的表述：
 
 ```text
-MedNeXt_MLA_FPSafe 在 MedNeXt_MLA 的基础上加入 patch-level no-tumor Top-K tumor probability
+MedNeXt_MLA_MoE_FPSafe 在 MedNeXt_MLA_MoE 的基础上加入 patch-level no-tumor Top-K tumor probability
 penalty。该 loss 对当前 patch 中不含肿瘤标注的样本，惩罚预测 tumor 概率最高的 1% 体素。
 虽然这一策略在内部测试集上降低了无肿瘤误报并提高 Overall，但外部 IRCADb 上 Overall 明显下降。
 这说明基于源域 no-tumor patch 的显式 FP 抑制可能学习到同域背景模式，并使模型过度保守；
 它不能直接等价于跨机构外部数据上的临床安全性提升。
 ```
 
-### 11.2 MedNeXt_MLA_MSDHCCMix
+### 11.2 MedNeXt_MLA_MoE_MSDHCCMix
 
 结论更新：
 
 ```text
-MedNeXt_MLA_MSDHCCMix 不纳入本文结果和 Discussion。
+MedNeXt_MLA_MoE_MSDHCCMix 不纳入本文结果和 Discussion。
 ```
 
 原因：
@@ -1719,7 +1719,7 @@ MedNeXt_MLA_MSDHCCMix 不纳入本文结果和 Discussion。
 2. 代码真实逻辑是旧 `Dataset013_HCCMultiPhase` 作为主数据集，再在运行时追加 `Dataset003_Liver`，不是“Dataset003 主训练 + HCC 外部数据混入”。
 3. 旧 `Dataset013_HCCMultiPhase` 已删除，当前 HCC 数据线已改为单通道 `Dataset013_HCCReferencedCT`。
 4. 当前论文主线比较的是 Dataset003 内部测试与 IRCADb 外部验证上的 trainer 差异；把这个旧 HCCMultiPhase 主域模型放进来会混淆变量。
-5. 即使它在 IRCADb 上有 report，也只能说明一个旧实验产物的表现，不能作为 MedNeXt_MLA、FPSafe、SizeOV 等当前 trainer 的消融证据。
+5. 即使它在 IRCADb 上有 report，也只能说明一个旧实验产物的表现，不能作为 MedNeXt_MLA_MoE、FPSafe、SizeOV 等当前 trainer 的消融证据。
 
 处理方式：
 
@@ -1743,9 +1743,9 @@ MedNeXt_MLA_MSDHCCMix 不纳入本文结果和 Discussion。
 
 总原则：
 
-1. 主表只服务当前论文主线：Dataset003/LiTS 内部测试、IRCADb 外部验证、MedNeXt_MLA 外部可靠性。
+1. 主表只服务当前论文主线：Dataset003/LiTS 内部测试、IRCADb 外部验证、MedNeXt_MLA_MoE 外部可靠性。
 2. 同一张表内的方法必须训练/验证口径一致。
-3. `MedNeXt_MLA_MSDHCCMix` 不进入任何主表或补充负结果，因为它是旧 `Dataset013_HCCMultiPhase` 主域 mix，不是当前 Dataset003 trainer 口径。
+3. `MedNeXt_MLA_MoE_MSDHCCMix` 不进入任何主表或补充负结果，因为它是旧 `Dataset013_HCCMultiPhase` 主域 mix，不是当前 Dataset003 trainer 口径。
 4. HCCReferencedCT 只作为后续临床扩展线，除非完成固定 held-out test 和清晰对照，否则不并入当前主表。
 
 ### 12.1 表 1：内部测试集
@@ -1760,7 +1760,7 @@ Table 1. Internal test performance on Dataset003_Liver.
 
 ```text
 说明各类模型在同域 Dataset003/LiTS 风格测试集上的表现。
-重点不是证明 MedNeXt_MLA 内部最高，而是展示 MedNeXt / MedNeXt_SizeOV4 是更强的同域 baseline。
+重点不是证明 MedNeXt_MLA_MoE 内部最高，而是展示 MedNeXt / MedNeXt_SizeOV4 是更强的同域 baseline。
 ```
 
 建议列：
@@ -1787,9 +1787,9 @@ SwinUNETR
 nnFormer
 MedNeXt
 MedNeXt_SizeOV4
-MedNeXt_MLA
-MedNeXt_MLA_SizeOV4
-MedNeXt_MLA_FPSafe
+MedNeXt_MLA_MoE
+MedNeXt_MLA_MoE_SizeOV4
+MedNeXt_MLA_MoE_FPSafe
 ```
 
 可选纳入：
@@ -1804,7 +1804,7 @@ MLA_GK5_V4
 不纳入：
 
 ```text
-MedNeXt_MLA_MSDHCCMix
+MedNeXt_MLA_MoE_MSDHCCMix
 HCCRefOnly / HCCRefOnly701020
 旧 HCCMultiPhase 相关 trainer
 ```
@@ -1840,8 +1840,8 @@ External - Internal drop
 必须突出：
 
 ```text
-MedNeXt_MLA 外部 Overall 第 1。
-MedNeXt_MLA drop 小。
+MedNeXt_MLA_MoE 外部 Overall 第 1。
+MedNeXt_MLA_MoE drop 小。
 MedNeXt / MedNeXt_SizeOV4 内部强，但外部 drop 大。
 MoE_SizeOV5 / MLAUNet 外部稳定，可作为支持“不是只有内部排名重要”的对照。
 ```
@@ -1849,7 +1849,7 @@ MoE_SizeOV5 / MLAUNet 外部稳定，可作为支持“不是只有内部排名�
 不纳入：
 
 ```text
-MedNeXt_MLA_MSDHCCMix
+MedNeXt_MLA_MoE_MSDHCCMix
 原因：训练主域不是 Dataset003，不能与当前 Dataset003 trainer 公平比较。
 ```
 
@@ -1875,9 +1875,9 @@ Table 3. Ablation study of MedNeXt variants.
 ```text
 MedNeXt
 MedNeXt_SizeOV4
-MedNeXt_MLA
-MedNeXt_MLA_SizeOV4
-MedNeXt_MLA_FPSafe
+MedNeXt_MLA_MoE
+MedNeXt_MLA_MoE_SizeOV4
+MedNeXt_MLA_MoE_FPSafe
 ```
 
 建议列：
@@ -1900,8 +1900,8 @@ External FP rate
 表内结论：
 
 ```text
-MedNeXt_MLA 是外部最稳的 MedNeXt 变体。
-SizeOV4 提高 MedNeXt 内部表现，但不能解释 MedNeXt_MLA 的外部收益。
+MedNeXt_MLA_MoE 是外部最稳的 MedNeXt 变体。
+SizeOV4 提高 MedNeXt 内部表现，但不能解释 MedNeXt_MLA_MoE 的外部收益。
 FPSafe 内部 FP 控制有帮助，但外部退化，因此是负/中性消融。
 ```
 
@@ -1949,7 +1949,7 @@ ircadb_008: 小肿瘤外部低 Dice
 
 ```text
 表 4 不需要纳入所有方法。
-它可以只围绕 MedNeXt_MLA、MedNeXt、MedNeXt_SizeOV4 或少数代表方法做 case-level 对照。
+它可以只围绕 MedNeXt_MLA_MoE、MedNeXt、MedNeXt_SizeOV4 或少数代表方法做 case-level 对照。
 重点是解释视觉歧义和 3D 上下文限制，不是再做一次排名。
 ```
 
@@ -1959,7 +1959,7 @@ ircadb_008: 小肿瘤外部低 Dice
 
 ### 13.1 方法图
 
-MedNeXt_MLA 结构图：
+MedNeXt_MLA_MoE 结构图：
 
 ```text
 Input CT
@@ -1988,7 +1988,7 @@ y = external Overall
 应展示：
 
 1. MedNeXt_SizeOV4 内部高、外部低。
-2. MedNeXt_MLA 内部中上、外部最高。
+2. MedNeXt_MLA_MoE 内部中上、外部最高。
 3. MoE_SizeOV5 / MLAUNet 外部稳定。
 
 ### 13.3 Drop 条形图
@@ -2004,7 +2004,7 @@ External Overall - Internal Overall
 ```text
 MedNeXt: -0.0697
 MedNeXt_SizeOV4: -0.0634
-MedNeXt_MLA: -0.0180
+MedNeXt_MLA_MoE: -0.0180
 ```
 
 ### 13.4 失败案例图
@@ -2039,7 +2039,7 @@ MedNeXt_MLA: -0.0180
 当前判断：
 
 ```text
-MLA 要保留，并迁移到 MedNeXt_MLA 作为核心结构。
+MLA 要保留，并迁移到 MedNeXt_MLA_MoE 作为核心结构。
 MoE 不作为主创新，写成探索性对照。
 SizeOV 不作为主创新，写成采样对照。
 ```
@@ -2061,13 +2061,13 @@ dataset:
   Dataset013_HCCReferencedCT
 
 trainer:
-  nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020
+  nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly701020
 
 configuration:
   3d_fullres, fold_0
 
 output:
-  /home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/nnUNetTrainer_MedNeXt_MLA_HCCRefOnly701020__nnUNetPlans__3d_fullres/fold_0
+  /home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly701020__nnUNetPlans__3d_fullres/fold_0
 
 当前进度:
   2026-07-10 已跑到 epoch 600 左右
@@ -2078,7 +2078,7 @@ output:
 这个 trainer 的意义：
 
 1. 它使用新的单通道 `Dataset013_HCCReferencedCT`，不是旧 `Dataset013_HCCMultiPhase`。
-2. 它验证 MedNeXt_MLA 在 HCC-TACE referenced CT 专病数据上能否稳定训练。
+2. 它验证 MedNeXt_MLA_MoE 在 HCC-TACE referenced CT 专病数据上能否稳定训练。
 3. 当前划分是 70/10/21：train=70，val=10，held-out test=21。
 4. test cases 不写入 nnU-Net 的 `splits_final.json`，不能参与 checkpoint selection。
 5. 训练完成后，应先在 21 个 held-out HCC test cases 上生成独立报告，再决定是否写进 Supplementary / Discussion。
@@ -2097,8 +2097,8 @@ HCCReferencedCT 是最自然的第二数据线，因为它来自不同来源、�
 当前最稳实验路线：
 
 1. 不先做大而全的 HCC 多模型竞赛。
-2. 先跑 `nnUNetTrainer_MedNeXt_MLA_HCCRefOnly` fold 0，确认数据、标签和 trainer 稳定。
-3. 如果 HCCRefOnly Dice 和可视化合理，再考虑做一个“Dataset003/LiTS 训练的 MedNeXt_MLA -> HCCReferencedCT 直接推理”的外部 HCC 测试。
+2. 先跑 `nnUNetTrainer_MedNeXt_MLA_MoE_HCCRefOnly` fold 0，确认数据、标签和 trainer 稳定。
+3. 如果 HCCRefOnly Dice 和可视化合理，再考虑做一个“Dataset003/LiTS 训练的 MedNeXt_MLA_MoE -> HCCReferencedCT 直接推理”的外部 HCC 测试。
 4. 如果 HCC 直接外推结果很差，也可以写成重要发现：HCC-TACE referenced CT 与 LiTS/IRCADb 的分布差异更大，说明外部可靠性问题更严重。
 5. 正式主表是否加入 HCC，等 HCC fold 0 sanity 和至少一个跨数据集推理结果出来后再决定。
 
@@ -2106,26 +2106,26 @@ HCCReferencedCT 是最自然的第二数据线，因为它来自不同来源、�
 
 ```text
 HCCRefOnly 训练不是用来直接证明当前“LiTS/MSD 内部 -> IRCADb 外部”的主结论。
-它验证的是：同一个 MedNeXt_MLA 框架在干净的 HCC referenced-CT 专病数据上是否能稳定训练、验证 Dice 是否合理、是否出现治疗相关或坏死相关的典型失败 case。
+它验证的是：同一个 MedNeXt_MLA_MoE 框架在干净的 HCC referenced-CT 专病数据上是否能稳定训练、验证 Dice 是否合理、是否出现治疗相关或坏死相关的典型失败 case。
 ```
 
 HCC 可以回答的问题：
 
-1. MedNeXt_MLA 能否在 HCC-TACE referenced CT 上稳定训练。
+1. MedNeXt_MLA_MoE 能否在 HCC-TACE referenced CT 上稳定训练。
 2. HCC 专病数据中的坏死、术后/治疗相关改变、超大 tumor/liver ratio case 是否造成特殊失败。
 3. LiTS/IRCADb 上总结出的 CT 视觉歧义，在 HCC 数据中是否也能观察到。
 4. 后续是否值得做 MSD+HCC 单通道混合训练。
 
 HCC 暂时不能直接回答的问题：
 
-1. 不能仅凭 HCCRefOnly fold 0 证明 MedNeXt_MLA 的跨数据集泛化更强，因为这是 HCC 内部 train/val。
+1. 不能仅凭 HCCRefOnly fold 0 证明 MedNeXt_MLA_MoE 的跨数据集泛化更强，因为这是 HCC 内部 train/val。
 2. 不能把 HCCRefOnly 的 val Dice 和 LiTS/IRCADb 的 test Dice 直接横向比较，因为数据来源、病例组成和划分口径不同。
 3. 不能把 HCC 结果直接混进当前主表，除非完成统一说明、固定划分、可视化和至少一个合理对照。
 
 如果要用 HCC 证明“跨域”，需要另做跨数据集实验：
 
 ```text
-方案 A：Dataset003/LiTS 训练的 MedNeXt_MLA -> 直接推理 HCCReferencedCT，作为外部 HCC 测试。
+方案 A：Dataset003/LiTS 训练的 MedNeXt_MLA_MoE -> 直接推理 HCCReferencedCT，作为外部 HCC 测试。
 方案 B：HCCRefOnly 训练 -> 推理 IRCADb 或 Dataset003 test，测试反向泛化。
 方案 C：MSD + HCC 单通道混合训练 -> 分别在 IRCADb 和 HCC held-out 上评估。
 ```
@@ -2182,9 +2182,9 @@ val = 21
 
 ```text
 case-level Tumor Dice
-MedNeXt_MLA vs MedNeXt
-MedNeXt_MLA vs MedNeXt_SizeOV4
-MedNeXt_MLA vs Baseline
+MedNeXt_MLA_MoE vs MedNeXt
+MedNeXt_MLA_MoE vs MedNeXt_SizeOV4
+MedNeXt_MLA_MoE vs Baseline
 ```
 
 优先：
@@ -2199,7 +2199,7 @@ Wilcoxon signed-rank test
 已核对：
 
 ```text
-MedNeXt_MLA 内部/外部主结果与原始 report 一致。
+MedNeXt_MLA_MoE 内部/外部主结果与原始 report 一致。
 ```
 
 还需核对：
@@ -2214,7 +2214,7 @@ MedNeXt_MLA 内部/外部主结果与原始 report 一致。
 
 ### 15.1 引言段落草稿
 
-肝脏肿瘤三维分割模型在内部测试集上取得较高 Dice，并不必然意味着其在外部临床数据上可靠。真实应用中，模型需要面对不同机构、扫描协议、肿瘤大小、对比度分布以及无肿瘤病例中的良性低密度结构。本文的系统实验显示，MedNeXt 和 MedNeXt_SizeOV4 在内部 Dataset003/LiTS 风格测试集上取得最高 Overall，但在 3D-IRCADb 外部验证中出现明显性能下降。相反，MedNeXt_MLA 虽然内部 Overall 排名第 6，却在 IRCADb 外部验证中取得 Overall 第 1，并显著减小 internal-external drop。这一现象说明，肝肿瘤分割方法不能只围绕内部平均 Dice 优化，还需要同时评估外部泛化、无肿瘤误报和隐匿肿瘤漏检。
+肝脏肿瘤三维分割模型在内部测试集上取得较高 Dice，并不必然意味着其在外部临床数据上可靠。真实应用中，模型需要面对不同机构、扫描协议、肿瘤大小、对比度分布以及无肿瘤病例中的良性低密度结构。本文的系统实验显示，MedNeXt 和 MedNeXt_SizeOV4 在内部 Dataset003/LiTS 风格测试集上取得最高 Overall，但在 3D-IRCADb 外部验证中出现明显性能下降。相反，MedNeXt_MLA_MoE 虽然内部 Overall 排名第 6，却在 IRCADb 外部验证中取得 Overall 第 1，并显著减小 internal-external drop。这一现象说明，肝肿瘤分割方法不能只围绕内部平均 Dice 优化，还需要同时评估外部泛化、无肿瘤误报和隐匿肿瘤漏检。
 
 ### 15.2 方法动机段落草稿
 
@@ -2222,7 +2222,7 @@ MedNeXt 的强性能来自深层 ConvNeXt-style 局部卷积骨干，包括深�
 
 ### 15.3 结果段落草稿
 
-在内部 Dataset003 测试集上，MedNeXt_SizeOV4 和 MedNeXt 分别取得 Overall 0.8431 和 0.8402，位列前两名；MedNeXt_MLA 的内部 Overall 为 0.8259，排名第 6。该结果说明 MedNeXt_MLA 并不是内部测试集上的最高分模型。然而，在 3D-IRCADb 外部验证中，MedNeXt_MLA 取得 Overall 0.8079、Tumor Dice 0.6484，位列所有有效方法第一；而 MedNeXt_SizeOV4 和 MedNeXt 的外部 Overall 分别下降到 0.7797 和 0.7705。MedNeXt_MLA 的 internal-external drop 仅为 -0.0180，明显小于 MedNeXt_SizeOV4 的 -0.0634 和 MedNeXt 的 -0.0697。这一排名反转表明，同域最优模型并不必然具备最佳外部泛化能力。
+在内部 Dataset003 测试集上，MedNeXt_SizeOV4 和 MedNeXt 分别取得 Overall 0.8431 和 0.8402，位列前两名；MedNeXt_MLA_MoE 的内部 Overall 为 0.8259，排名第 6。该结果说明 MedNeXt_MLA_MoE 并不是内部测试集上的最高分模型。然而，在 3D-IRCADb 外部验证中，MedNeXt_MLA_MoE 取得 Overall 0.8079、Tumor Dice 0.6484，位列所有有效方法第一；而 MedNeXt_SizeOV4 和 MedNeXt 的外部 Overall 分别下降到 0.7797 和 0.7705。MedNeXt_MLA_MoE 的 internal-external drop 仅为 -0.0180，明显小于 MedNeXt_SizeOV4 的 -0.0634 和 MedNeXt 的 -0.0697。这一排名反转表明，同域最优模型并不必然具备最佳外部泛化能力。
 
 ### 15.4 CT 视觉歧义段落草稿
 
@@ -2230,7 +2230,7 @@ MedNeXt 的强性能来自深层 ConvNeXt-style 局部卷积骨干，包括深�
 
 ### 15.5 负结果段落草稿
 
-本文还观察到，显式无肿瘤 FP 抑制并不必然提升外部可靠性。MedNeXt_MLA_FPSafe 在内部测试集上将 Overall 提升到 0.8326，并将内部无肿瘤误报率降至 33%，但在 IRCADb 外部验证中 Overall 下降到 0.7744，外部无肿瘤误报率仍为 60%。这说明基于源域无肿瘤样本学习到的 FP 抑制策略可能具有明显同域性，不能直接等价于跨域临床安全性。
+本文还观察到，显式无肿瘤 FP 抑制并不必然提升外部可靠性。MedNeXt_MLA_MoE_FPSafe 在内部测试集上将 Overall 提升到 0.8326，并将内部无肿瘤误报率降至 33%，但在 IRCADb 外部验证中 Overall 下降到 0.7744，外部无肿瘤误报率仍为 60%。这说明基于源域无肿瘤样本学习到的 FP 抑制策略可能具有明显同域性，不能直接等价于跨域临床安全性。
 
 ---
 
@@ -2247,8 +2247,8 @@ pumengyu/notes/md/论文主线.md
 
 ```text
 pumengyu/notes/md/02_实验结果/README.md
-pumengyu/notes/md/02_实验结果/外部验证_IRCADb.md
-pumengyu/notes/md/02_实验结果/消融分析.md
+pumengyu/notes/md/02_实验结果/三个数据集失败案例分析.md
+pumengyu/notes/md/02_实验结果/Mirror消融分析.md
 ```
 
 架构：
@@ -2261,7 +2261,7 @@ pumengyu/notes/md/00_架构设计/MLA_MoE架构.md
 旧稿与可复用材料：
 
 ```text
-pumengyu/notes/paper/正式论文v3_MedNeXt_MLA框架.md
+pumengyu/notes/paper/正式论文v3_MedNeXt_MLA_MoE框架.md
 pumengyu/notes/paper/正式论文v2.md
 pumengyu/notes/paper/异常case分析材料.md
 ```
@@ -2278,7 +2278,7 @@ pumengyu/notes/md/03_数据集/数据分布度量.md
 
 ```text
 /home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver
-/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_IRCADb
+/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only
 ```
 
 ---
