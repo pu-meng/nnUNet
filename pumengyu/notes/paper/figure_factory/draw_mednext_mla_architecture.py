@@ -124,41 +124,45 @@ def draw() -> None:
     add_round_box(ax, (1.82, 7.20), 1.42, 0.82, "Stem", "1x1x1 Conv", "feature projection", fontsize=11)
 
     encoder_specs = [
-        ("Encoder Stage 1", "MedNeXt blocks x3", "C=32 | full resolution"),
-        ("Encoder Stage 2", "MedNeXt blocks x4", "C=64 | 1/2 resolution"),
-        ("Encoder Stage 3", "MedNeXt blocks x8", "C=128 | 1/4 resolution"),
-        ("Encoder Stage 4", "MedNeXt blocks x8", "C=256 | 1/8 resolution"),
+        ("Stage 1", "×3", "32 ch | D × H × W"),
+        ("Stage 2", "×4", "64 ch | D/2 × H/2 × W/2"),
+        ("Stage 3", "×8", "128 ch | D/4 × H/4 × W/4"),
+        ("Stage 4", "×8", "256 ch | D/8 × H/8 × W/8"),
     ]
     decoder_specs = [
-        ("Decoder Stage 1", "MedNeXt blocks x3", "C=32 | full resolution"),
-        ("Decoder Stage 2", "MedNeXt blocks x4", "C=64 | 1/2 resolution"),
-        ("Decoder Stage 3", "MedNeXt blocks x8", "C=128 | 1/4 resolution"),
-        ("Decoder Stage 4", "MedNeXt blocks x8", "C=256 | 1/8 resolution"),
+        ("Stage 1", "×3", "32 ch | D × H × W"),
+        ("Stage 2", "×4", "64 ch | D/2 × H/2 × W/2"),
+        ("Stage 3", "×8", "128 ch | D/4 × H/4 × W/4"),
+        ("Stage 4", "×8", "256 ch | D/8 × H/8 × W/8"),
     ]
     for y, spec in zip(stage_y, encoder_specs):
         add_round_box(ax, (enc_x, y), w, h, *spec, kind="conv", fontsize=11)
     for y, spec in zip(stage_y, decoder_specs):
         add_round_box(ax, (dec_x, y), w, h, *spec, kind="decoder", fontsize=11)
 
+    bot_x = 4.65
     bot_y = 0.82
+    bot_w = 2.60
+    mla_x = 7.50
+    mla_w = 2.25
     add_round_box(
         ax,
-        (5.05, bot_y),
-        2.05,
+        (bot_x, bot_y),
+        bot_w,
         1.05,
         "MedNeXt Bottleneck",
-        "MedNeXt blocks x8",
-        "C=512 | 1/16 resolution",
+        "×8",
+        "512 ch | D/16 × H/16 × W/16",
         kind="bottleneck",
         fontsize=11,
     )
     add_round_box(
         ax,
-        (7.40, bot_y),
-        2.05,
+        (mla_x, bot_y),
+        mla_w,
         1.05,
         "MLA + MoE",
-        "2 context blocks",
+        "×2",
         "global token interaction",
         kind="mla",
         fontsize=11,
@@ -174,13 +178,13 @@ def draw() -> None:
     # Encoder descends along the left arm.
     for upper_y, lower_y in zip(stage_y[:-1], stage_y[1:]):
         add_arrow(ax, (enc_x + w / 2, upper_y), (enc_x + w / 2, lower_y + h))
-    add_arrow(ax, (enc_x + w / 2, stage_y[-1]), (5.05 + 1.025, bot_y + 1.05))
+    add_arrow(ax, (enc_x + w / 2, stage_y[-1]), (bot_x + bot_w / 2, bot_y + 1.05))
 
     # Bottom bridge: convolutional bottleneck -> MLA/MoE context.
-    add_arrow(ax, (7.10, bot_y + 0.525), (7.40, bot_y + 0.525))
+    add_arrow(ax, (bot_x + bot_w, bot_y + 0.525), (mla_x, bot_y + 0.525))
 
     # Decoder rises along the right arm.
-    add_arrow(ax, (9.45, bot_y + 1.05), (dec_x + w / 2, stage_y[-1]))
+    add_arrow(ax, (mla_x + mla_w, bot_y + 1.05), (dec_x + w / 2, stage_y[-1]))
     for lower_y, upper_y in zip(reversed(stage_y[1:]), reversed(stage_y[:-1])):
         add_arrow(ax, (dec_x + w / 2, lower_y + h), (dec_x + w / 2, upper_y))
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=SSH disconnect and server health monitor
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/ssh-disconnect-monitor
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/home/PuMengYu/SSH断开监控
+
+[Install]
+WantedBy=multi-user.target

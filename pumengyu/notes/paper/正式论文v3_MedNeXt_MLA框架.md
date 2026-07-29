@@ -52,7 +52,7 @@ $\quad$本文提出的 MedNeXt_MLA_MoE 总体结构如图 1 所示。该网络�
 
 ![MedNeXt_MLA_MoE overall architecture](figures/mednext_mla_architecture.svg)
 
-<p align="center"><small><strong>图 1  MedNeXt_MLA_MoE 总体结构。</strong> 网络以 MedNeXt-L 为 U 形卷积主干，在最低分辨率 bottleneck 后插入 MLA+MoE 上下文模块。实线为主前向路径，虚线为同分辨率 skip connection。</small></p>
+<p align="center"><small><strong>图 1  MedNeXt_MLA_MoE 总体结构。</strong> 网络以 MedNeXt-L 为 U 形卷积主干，在最低分辨率 bottleneck 后插入 MLA+MoE 上下文模块。方框中的“×n”表示该 stage 内重复 n 个 MedNeXtBlock；D、H、W 分别表示输入特征的深度、高度和宽度。实线为主前向路径，虚线为同分辨率 skip connection。</small></p>
 
 ### 3.1 Encoder
 
