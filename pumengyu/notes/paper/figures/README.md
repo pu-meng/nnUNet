@@ -18,7 +18,7 @@
 - `ircadb_*`、`lits_*`：精简前的独立病例图。
 - `hcc_cross_trainer_failure_overview.*`：HCC 跨 trainer 共同失败总览。
 
-补充图片仍可用于附录、答辩或机制解释，但不能沿用精简前的正文图号。精简前逐图说明已由本索引和 [`../实验与分析/LiTS视觉歧义与失败病例证据.md`](../实验与分析/LiTS视觉歧义与失败病例证据.md) 承接，不再维护重复嵌图预览。图片修改入口见 [`../figure_factory/README.md`](../figure_factory/README.md)。
+补充图片仍可用于附录、答辩或机制解释，但不能沿用精简前的正文图号。精简前逐图说明已由本索引和 [`../../md/02_实验档案/LiTS视觉歧义与失败病例证据.md`](../../md/02_实验档案/LiTS视觉歧义与失败病例证据.md) 承接，不再维护重复嵌图预览。图片修改入口见 [`../figure_factory/README.md`](../figure_factory/README.md)。
 
 ## 维护边界
 

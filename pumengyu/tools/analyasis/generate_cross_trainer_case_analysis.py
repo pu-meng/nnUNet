@@ -24,7 +24,7 @@ from statistics import median
 
 WORKSPACE = Path("/home/PuMengYu/nnUNet_workspace")
 REPO = Path("/home/PuMengYu/nnUNet")
-OUTPUT = REPO / "pumengyu/notes/md/02_实验结果/三个数据集失败案例分析.md"
+OUTPUT = REPO / "pumengyu/notes/md/02_实验档案/三个数据集失败案例分析.md"
 
 FAIR_METHODS = (
     "Baseline",

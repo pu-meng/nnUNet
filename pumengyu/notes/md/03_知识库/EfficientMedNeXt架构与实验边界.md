@@ -426,7 +426,7 @@ EfficientMedNeXt 的三个贡献不是三个独立模块，而是一条连续路
 | Decoder | 每级换成单个普通卷积 stage | HRR + UDC |
 | 当前证据 | 全模型参数下降 15.30%，但三域 Tumor Dice 均下降 | 已报告参数、FLOPs 与多数据集 Dice 消融 |
 
-因此，PlainConvDecoder 不能声称复现论文的 72.7% 压缩。其三域正式结果已经证明：虽然 decoder 参数下降 75.1%、全模型参数下降 15.30%，但 Internal、IRCADb、HCC Tumor Dice 分别下降 0.0142、0.0144、0.1024。它是已完成的负向消融，不能用来证明原始 decoder 冗余。详细证据见 [`../实验与分析/负向与近中性消融汇总.md`](../实验与分析/负向与近中性消融汇总.md)。
+因此，PlainConvDecoder 不能声称复现论文的 72.7% 压缩。其三域正式结果已经证明：虽然 decoder 参数下降 75.1%、全模型参数下降 15.30%，但 Internal、IRCADb、HCC Tumor Dice 分别下降 0.0142、0.0144、0.1024。它是已完成的负向消融，不能用来证明原始 decoder 冗余。详细证据见 [`../02_实验档案/负向与近中性消融汇总.md`](../02_实验档案/负向与近中性消融汇总.md)。
 
 ## 11. 官方来源与本仓库适配
 
@@ -448,10 +448,10 @@ EfficientMedNeXt 的三个贡献不是三个独立模块，而是一条连续路
 
 文件缺失或哈希变化时，构建应显式失败。固定 L 配置为 base/uniform decoder channels 32、kernel specification `[1,3,5]`、block counts `[3,4,4,4,4,4,4,4,3]`、残差与深监督开启。Dataset003 单通道输入、三分类输出时参数量为 2,193,808。
 
-早期接入阶段已通过：Python 编译、哈希检查、Trainer 发现、CPU forward/backward、五级深监督和关闭深监督后的单输出。当前三域正式结果已存在；最新产物状态以 [`../实验与分析/FCSU-Net参照下的项目论文级审计_20260831.md`](../实验与分析/FCSU-Net参照下的项目论文级审计_20260831.md) 为准，不再保留“训练未开始”的历史快照。
+早期接入阶段已通过：Python 编译、哈希检查、Trainer 发现、CPU forward/backward、五级深监督和关闭深监督后的单输出。当前三域正式结果已存在；最新产物状态以 [`../01_当前项目/当前实验与重训.md`](../01_当前项目/当前实验与重训.md) 为准，不再保留“训练未开始”的历史快照。
 
 ## 12. 核对依据
 
 - 论文：`pumengyu/notes/paper/外界参考论文/4895_paper.pdf`
 - 官方代码：`/home/PuMengYu/EfficientMedNeXt`
-- 当前受控消融：`pumengyu/notes/paper/实验与分析/负向与近中性消融汇总.md`
+- 当前受控消融：`pumengyu/notes/md/02_实验档案/负向与近中性消融汇总.md`

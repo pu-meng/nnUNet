@@ -39,7 +39,7 @@
 
 ### 3.1 liver_41：阴性病例大体积误报
 
-![liver_41 z=45](../assets/liver_41_z45_full.png)
+![liver_41 z=45](../../paper/assets/liver_41_z45_full.png)
 
 【图像和统计中确认】模型 FP 与肝内低密度区域重叠，说明低密度正常/非目标结构可能触发肿瘤响应。
 
@@ -49,7 +49,7 @@
 
 GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均值约 96 HU。
 
-![liver_127 z=631](../assets/liver_127_z631_full.png)
+![liver_127 z=631](../../paper/assets/liver_127_z631_full.png)
 
 该病例可支持“极小体积和弱对比度共同增加分割难度”，不能支持“任何架构都无法识别”或“GT 必然错误”。若论文讨论 annotation uncertainty，应使用复核标注或多医生一致性证据。
 
@@ -70,7 +70,7 @@ GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均�
 
 `liver_12 z=416`：GT 约 130 voxel，TP=100、FP=5、FN=30，切片 Recall 约 77%。
 
-![liver_12 z=416](../assets/liver_12_z416_full.png)
+![liver_12 z=416](../../paper/assets/liver_12_z416_full.png)
 
 这说明弱对比度不等于必然漏检。模型可能利用强度、形态和邻层信息，但当前图片不能分离三者的贡献。
 
@@ -83,7 +83,7 @@ GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均�
 | z=435 | 560 | 175 | 237 | 70% |
 | z=445 | 461 | 213 | 54 | 90% |
 
-![liver_19 z=432](../assets/liver_19_z432_full.png)
+![liver_19 z=432](../../paper/assets/liver_19_z432_full.png)
 
 原记录中部分 GT 与 TP/FN 手算相互不一致，因此本表不继续抄写有冲突的 GT，只按保存的 TP/FN 重算 Recall。正式使用前仍应从预测与 GT 重新计算。它适合展示低对比度多病灶的定位与边界权衡，不适合声称临床收益已经验证。
 
@@ -98,9 +98,9 @@ GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均�
 | z=334 | 641 | 593 | 63 | 48 | 主体层 |
 | z=337 | 578 | 540 | 35 | 38 | 主体层 |
 
-![liver_13 z=327](../assets/liver_13_z327_full.png)
+![liver_13 z=327](../../paper/assets/liver_13_z327_full.png)
 
-![liver_13 z=334](../assets/liver_13_z334_full.png)
+![liver_13 z=334](../../paper/assets/liver_13_z334_full.png)
 
 【推断】预测在相邻 z 层提前出现，与 3D 上下文导致的边界外溢一致。要证明机制，需要与 2D、不同 z receptive field 或边界损失对照；当前只能作为病例解释。
 
@@ -116,9 +116,9 @@ GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均�
 | z=50 | 1392 | 727 | 52% | 开始出现可利用信号 |
 | z=51 | 1744 | 1342 | 77% | 检出进一步提高 |
 
-![liver_33 z=49](../assets/liver_33_z49_full.png)
+![liver_33 z=49](../../paper/assets/liver_33_z49_full.png)
 
-![liver_33 z=50](../assets/liver_33_z50_full.png)
+![liver_33 z=50](../../paper/assets/liver_33_z50_full.png)
 
 这是“切片可见信号与该层 Recall 同向变化”的病例证据，但同时存在 GT 面积、邻层上下文和肿瘤形态变化，不能写成“阴影是唯一原因”。
 
@@ -126,7 +126,7 @@ GT 仅 298 voxel、跨 `z=630–632` 三层。肿瘤均值约 79 HU、肝脏均�
 
 `liver_39 z=11/16` 在当前窗宽下没有明显低密度阴影，但历史模型 Recall 分别约 96.4% 和 97.2%。
 
-![liver_39 z=16](../assets/liver_39_z16_full.png)
+![liver_39 z=16](../../paper/assets/liver_39_z16_full.png)
 
 该反例否定了“完全由肉眼阴影决定模型检出”的简单叙事。可能存在邻层信息、微弱 HU 差、形态或位置线索，现有证据无法分解。
 
