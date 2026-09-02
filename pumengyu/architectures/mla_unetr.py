@@ -22,6 +22,7 @@ from typing import List, Tuple, Type, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
 
@@ -151,7 +152,8 @@ class MoEFFN(nn.Module):
 
     负载均衡：loss-free bias 机制：
         - expert_bias: register_buffer（非 Parameter，不进优化器）
-        - 每个 train step 的 forward 末尾自动调用 update_expert_bias()
+        - forward 只记录专家负载，backward 完成后由 Trainer 提交一次 bias 更新
+        - DDP 先聚合所有 rank 的负载计数，再在各 rank 应用相同更新
         - bias 只影响路由选择（topk_idx），gate 权重用原始 scores softmax
 
     专家宽度：d_ff = d_model * mlp_ratio // 2
@@ -178,14 +180,41 @@ class MoEFFN(nn.Module):
 
         self.register_buffer('expert_bias',     torch.zeros(num_routed_experts))
         self.register_buffer('expert_load_ema', torch.full((num_routed_experts,), 1.0 / num_routed_experts))
+        # Transient statistics from the current training iteration. This is
+        # deliberately not a buffer: it must not enter checkpoints or DDP's
+        # buffer broadcast. Gradient checkpointing may execute forward twice;
+        # both executions overwrite this value, while the routing state itself
+        # remains unchanged until backward has completed.
+        self._pending_expert_counts: torch.Tensor | None = None
 
     @torch.no_grad()
-    def update_expert_bias(self, topk_idx: torch.Tensor):
-        """EMA 估计各专家负载，调整 bias：过载专家 bias 下降，欠载专家 bias 上升。"""
+    def _record_expert_load(self, topk_idx: torch.Tensor) -> None:
+        """Cache this iteration's routing counts without changing routing."""
         counts = torch.zeros(self.num_routed_experts, device=topk_idx.device, dtype=torch.float32)
         for e in range(self.num_routed_experts):
             counts[e] = (topk_idx == e).sum()
-        load = counts / topk_idx.numel()
+        self._pending_expert_counts = counts
+
+    @torch.no_grad()
+    def commit_expert_bias_update(self) -> None:
+        """Update load-balancing state once, after backward/recomputation.
+
+        All DDP ranks first sum their token counts, so every rank applies the
+        same EMA and bias update. The nnU-Net trainer invokes this deferred
+        callback after ``backward()`` and before the optimizer step.
+        """
+        if self._pending_expert_counts is None:
+            return
+
+        counts = self._pending_expert_counts
+        self._pending_expert_counts = None
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(counts, op=dist.ReduceOp.SUM)
+
+        total = counts.sum()
+        if total.item() <= 0:
+            return
+        load = counts / total
         self.expert_load_ema.mul_(0.99).add_(load * 0.01)
         target = 1.0 / self.num_routed_experts
         self.expert_bias.add_((target - self.expert_load_ema) * 1e-3)
@@ -212,7 +241,7 @@ class MoEFFN(nn.Module):
         out = (self.shared_expert(x_flat) + routed).reshape(B, N, D)
 
         if self.training:
-            self.update_expert_bias(topk_idx.detach())
+            self._record_expert_load(topk_idx.detach())
 
         return out
 

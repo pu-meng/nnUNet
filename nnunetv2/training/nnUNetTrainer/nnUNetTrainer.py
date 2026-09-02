@@ -1042,14 +1042,29 @@ class nnUNetTrainer(object):
         if self.grad_scaler is not None:
             self.grad_scaler.scale(l).backward()
             self.grad_scaler.unscale_(self.optimizer)
+            self._commit_deferred_network_updates()
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.grad_scaler.step(self.optimizer)
             self.grad_scaler.update()
         else:
             l.backward()
+            self._commit_deferred_network_updates()
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
         return {'loss': l.detach().cpu().numpy()}
+
+    def _commit_deferred_network_updates(self) -> None:
+        """Commit state that must remain immutable during checkpoint replay.
+
+        Modules may expose ``commit_expert_bias_update`` for updates that are
+        based on the just-finished forward but cannot safely run inside it.
+        Traversing modules keeps the base trainer independent of the optional
+        MoE implementation and is a no-op for all ordinary nnU-Net models.
+        """
+        for module in self.network.modules():
+            commit = getattr(module, 'commit_expert_bias_update', None)
+            if commit is not None:
+                commit()
 
     def on_train_epoch_end(self, train_outputs: List[dict]):
         outputs = collate_outputs(train_outputs)
