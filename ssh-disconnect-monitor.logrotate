@@ -1,8 +1,0 @@
-/home/PuMengYu/SSH断开监控/监控.log {
-    size 10M
-    rotate 5
-    compress
-    missingok
-    notifempty
-    copytruncate
-}

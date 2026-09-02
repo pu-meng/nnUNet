@@ -13,6 +13,7 @@ import torch
 from torch import nn
 from torch.utils import checkpoint as _cp
 from nnunet_mednext.network_architecture.mednextv1.MedNextV1 import MedNeXt
+from nnunet_mednext.network_architecture.mednextv1.blocks import MedNeXtBlock
 from pumengyu.architectures.mla_unetr import MLABottleneck3D, MHABottleneck3D
 
 _MEDNEXT_L_KWARGS = dict(
@@ -101,9 +102,12 @@ class MedNeXtMLABot(MedNeXt):
                  mla_compression_ratio: int = 4,
                  mla_mlp_ratio: int = 4,
                  mla_use_moe: bool = True,
+                 enable_mednext_grn: bool = False,
                  deep_supervision_scales=None,
                  **kwargs):
         super().__init__(*args, **kwargs)
+        if enable_mednext_grn:
+            self._enable_grn_in_all_mednext_blocks()
         n_channels = kwargs.get('n_channels', 32)
         self.deep_supervision_scales = deep_supervision_scales
         self.mla_bot = MLABottleneck3D(
@@ -114,6 +118,36 @@ class MedNeXtMLABot(MedNeXt):
             mlp_ratio=mla_mlp_ratio,
             use_moe=mla_use_moe,
         )
+
+    def _enable_grn_in_all_mednext_blocks(self) -> None:
+        """Enable 3D GRN in every standard, downsampling and upsampling block.
+
+        The installed MedNeXt implementation does not propagate its global
+        ``grn`` flag to ``down_0``. Registering GRN here after construction
+        guarantees that the experiment covers every MedNeXt block while
+        leaving the existing non-GRN trainers and checkpoints unchanged.
+        """
+        enabled_blocks = 0
+        for module in self.modules():
+            if not isinstance(module, MedNeXtBlock):
+                continue
+            if module.dim != '3d':
+                raise RuntimeError("MedNeXt_MLA_MoE_GRN requires 3D MedNeXt blocks")
+            expanded_channels = module.conv2.out_channels
+            module.grn = True
+            if not hasattr(module, 'grn_beta'):
+                module.register_parameter(
+                    'grn_beta',
+                    nn.Parameter(torch.zeros(1, expanded_channels, 1, 1, 1)),
+                )
+            if not hasattr(module, 'grn_gamma'):
+                module.register_parameter(
+                    'grn_gamma',
+                    nn.Parameter(torch.zeros(1, expanded_channels, 1, 1, 1)),
+                )
+            enabled_blocks += 1
+        if enabled_blocks == 0:
+            raise RuntimeError("GRN was requested but no MedNeXt blocks were found")
 
     def _apply_bottleneck_context(self, x: torch.Tensor) -> torch.Tensor:
         return self.mla_bot(x)
@@ -228,6 +262,71 @@ class MedNeXtMLABot(MedNeXt):
             return x
 
 
+class PlainConvUpBlock3D(nn.Module):
+    """Minimal U-Net-style learned 2x upsampling for the decoder."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.up = nn.ConvTranspose3d(
+            in_channels,
+            out_channels,
+            kernel_size=2,
+            stride=2,
+            bias=False,
+        )
+
+    def forward(self, x: torch.Tensor, dummy_tensor=None) -> torch.Tensor:
+        return self.up(x)
+
+
+class PlainConvDecoderStage3D(nn.Module):
+    """One ordinary 3x3x3 convolution after additive skip fusion.
+
+    GroupNorm with one group per channel matches the batch-size-independent
+    normalization policy of the MedNeXt control. There is deliberately no
+    expansion MLP, depthwise convolution stack or residual block here.
+    """
+
+    def __init__(self, channels: int):
+        super().__init__()
+        self.conv = nn.Conv3d(
+            channels,
+            channels,
+            kernel_size=3,
+            padding=1,
+            bias=False,
+        )
+        self.norm = nn.GroupNorm(num_groups=channels, num_channels=channels)
+        self.act = nn.GELU()
+
+    def forward(self, x: torch.Tensor, dummy_tensor=None) -> torch.Tensor:
+        return self.act(self.norm(self.conv(x)))
+
+
+class MedNeXtMLAPlainConvDecoderBot(MedNeXtMLABot):
+    """MedNeXt encoder + MLA/MoE bottleneck + shallow plain-conv decoder.
+
+    The encoder, four downsampling blocks, eight-block MedNeXt bottleneck,
+    MLA/MoE context module, additive skip connections and deep-supervision
+    heads are identical to ``MedNeXtMLABot``. Only the right-hand decoder is
+    replaced: each scale uses a 2x transposed convolution, adds the matching
+    encoder skip, then applies one ordinary 3x3x3 Conv-GN-GELU stage.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        n_channels = int(kwargs.get('n_channels', 32))
+
+        self.up_3 = PlainConvUpBlock3D(16 * n_channels, 8 * n_channels)
+        self.dec_block_3 = nn.Sequential(PlainConvDecoderStage3D(8 * n_channels))
+        self.up_2 = PlainConvUpBlock3D(8 * n_channels, 4 * n_channels)
+        self.dec_block_2 = nn.Sequential(PlainConvDecoderStage3D(4 * n_channels))
+        self.up_1 = PlainConvUpBlock3D(4 * n_channels, 2 * n_channels)
+        self.dec_block_1 = nn.Sequential(PlainConvDecoderStage3D(2 * n_channels))
+        self.up_0 = PlainConvUpBlock3D(2 * n_channels, n_channels)
+        self.dec_block_0 = nn.Sequential(PlainConvDecoderStage3D(n_channels))
+
+
 class MedNeXtMHABot(MedNeXtMLABot):
     """MedNeXt-L + 标准 Transformer bottleneck（MHA + MLP）。"""
 
@@ -322,9 +421,38 @@ def build_mednext_large_mla(
     mla_compression_ratio: int = 4,
     mla_mlp_ratio: int = 4,
     mla_use_moe: bool = True,
+    enable_mednext_grn: bool = False,
     deep_supervision_scales=None,
 ) -> MedNeXtMLABot:
     net = MedNeXtMLABot(
+        in_channels=num_input_channels,
+        n_classes=num_output_channels,
+        deep_supervision=True,
+        mla_num_heads=mla_num_heads,
+        mla_num_blocks=mla_num_blocks,
+        mla_compression_ratio=mla_compression_ratio,
+        mla_mlp_ratio=mla_mlp_ratio,
+        mla_use_moe=mla_use_moe,
+        enable_mednext_grn=enable_mednext_grn,
+        deep_supervision_scales=deep_supervision_scales,
+        **_MEDNEXT_L_KWARGS,
+    )
+    net.do_ds = enable_deep_supervision
+    return net
+
+
+def build_mednext_large_mla_plain_conv_decoder(
+    num_input_channels: int,
+    num_output_channels: int,
+    enable_deep_supervision: bool = True,
+    mla_num_heads: int = 8,
+    mla_num_blocks: int = 2,
+    mla_compression_ratio: int = 4,
+    mla_mlp_ratio: int = 4,
+    mla_use_moe: bool = True,
+    deep_supervision_scales=None,
+) -> MedNeXtMLAPlainConvDecoderBot:
+    net = MedNeXtMLAPlainConvDecoderBot(
         in_channels=num_input_channels,
         n_classes=num_output_channels,
         deep_supervision=True,

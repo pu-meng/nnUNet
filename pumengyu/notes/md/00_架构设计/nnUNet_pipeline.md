@@ -354,7 +354,63 @@ scaler = torch.cuda.amp.GradScaler()
 - [ ] 保存完整状态：model + optimizer + scheduler + epoch（支持 resume）
 - [ ] 保存 `config.json`：记录所有超参，方便复现
 
-###### 8.5 DataLoader 配置
+###### 8.5 每个 Trainer 的资源与时间记录
+
+所有继承公共 `nnUNetTrainer` 的训练现在都会在对应 `fold_*` 结果目录生成：
+
+```text
+resource_usage.json
+```
+
+该文件不改 checkpoint 格式，因此旧 checkpoint 仍可正常续训。它记录：
+
+- run 级：dataset、trainer、configuration、fold、patch size、全局/各 rank batch size、GPU 数与型号、AMP、`torch.compile`、PyTorch/CUDA；
+- model 级：总参数量和可训练参数量；
+- epoch 级：训练段时间、验证段时间、完整 epoch 时间、训练样本数、训练 samples/s、各 GPU 中最大的 peak allocated/reserved memory；
+- summary：已记录 epoch 数、累计 epoch wall-clock 和整个训练过程的最高显存。
+
+这些字段还会自动写入每个 fold 的 `report_custom.txt` 和 `test_report_custom.txt`，并明确分成：
+
+1. 理论模型成本：Params、FLOPs、FLOPs 输入；
+2. 实际训练成本：GPU 数/型号、compile、epoch 数、累计/中位/平均时间、训练峰值显存；
+3. 实际推理部署成本：病例清单范围、GPU 数/型号、总时间、每例时间和推理峰值显存。
+
+推理计时覆盖预处理后病例读取、滑窗推理和异步 NIfTI 导出，不包含指标、报告和可视化。正式推理前会释放 optimizer、scheduler 和 GradScaler 的训练状态，避免把优化器显存错误算成部署显存。
+
+FLOPs 不在正式训练进程中自动计算。原因是额外 dummy forward 可能显著增加初始化时间、触发 OOM，而且自定义算子不一定被 FLOP counter 支持。FLOPs 应在 GPU 空闲时使用固定输入、AMP、compile、warm-up 和重复次数的独立 benchmark 生成，并与 `resource_usage.json` 中的真实训练记录分开解释。
+
+任意 trainer 的 FLOPs 使用同一个离线入口测量。例如：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 /home/PuMengYu/anaconda3/envs/medseg/bin/python \
+  pumengyu/tools/analyasis/profile_trainer_flops.py \
+  Dataset003_Liver 3d_fullres 0 \
+  -tr nnUNetTrainer_MedNeXt_MLA_MoE \
+  --meta
+```
+
+`--meta` 只执行张量形状和算子图，不占用 GPU；若某个自定义算子不支持 meta tensor，再去掉 `--meta` 并在 GPU 空闲时实测。输出为对应 fold 目录内的 `offline_complexity.json`；若该目录已有 `resource_usage.json`，脚本也会把 FLOPs 和完整测量协议合并进去。该命令不加载 checkpoint，因为权重数值不会改变参数量和前向执行图。
+
+旧实验可从 `checkpoint_final.pth` 的 epoch 时间戳和历史推理日志回收已有证据：
+
+```bash
+/home/PuMengYu/anaconda3/envs/medseg/bin/python \
+  pumengyu/tools/analyasis/recover_historical_costs.py \
+  /absolute/path/to/fold_0 \
+  --report /absolute/path/to/fold_0/report_custom.txt
+```
+
+可恢复的是累计 epoch 时间、每轮统计以及日志中有明确起止标记的病例推理时间。历史训练/推理峰值显存无法从 checkpoint 反推，只能重新实测；回收脚本会保留 `N/A（历史未记录）`，不会用参数量或当前空闲显存代替。
+
+Latency 与推理 Throughput 也不混入训练资源文件：训练文件中的 `train_samples_per_s` 是包含数据加载、前向、反向和优化器更新的训练吞吐，不等于推理吞吐。端到端推理速度需要固定病例清单、滑窗和 I/O 协议后另测。
+
+检查示例：
+
+```bash
+python -m json.tool "$RESULT_FOLDER/resource_usage.json" | less
+```
+
+###### 8.6 DataLoader 配置
 
 **train：**
 ```python

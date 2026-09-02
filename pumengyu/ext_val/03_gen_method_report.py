@@ -433,7 +433,7 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     if predict:
         if not trainer:
             raise ValueError("--predict 需要同时指定 --trainer")
-        if str(dataset).lstrip("0") == "3" and checkpoint == "checkpoint_best.pth":
+        if _dataset_id_arg(dataset) == "3" and checkpoint == "checkpoint_best.pth":
             # Source-only external evaluations must inherit the same checkpoint
             # provenance gate as the internal best-only report.
             from pumengyu.tools.run_internal_test_best_report import (

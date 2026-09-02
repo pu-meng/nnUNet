@@ -1,6 +1,6 @@
 # 实战：naive vs Flash Attention
 
-###### 测试脚本（`pumengyu/notes/ncu_test_pure.py`）
+###### 测试脚本（`pumengyu/tools/profiling/ncu_test_pure.py`）
 
 ```python
 import torch, torch.nn.functional as F

@@ -83,6 +83,17 @@ def prepare_hcc_test_external_dir() -> list[str]:
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     LABEL_DIR.mkdir(parents=True, exist_ok=True)
 
+    expected_images = {f"{case}_0000.nii.gz" for case in cases}
+    expected_labels = {f"{case}.nii.gz" for case in cases}
+    for directory, expected in ((IMAGE_DIR, expected_images), (LABEL_DIR, expected_labels)):
+        for path in directory.glob("*.nii.gz"):
+            if path.name in expected:
+                continue
+            if not path.is_symlink():
+                raise RuntimeError(f"Refusing to remove unexpected non-symlink input: {path}")
+            path.unlink()
+            print(f"[清理] 移除固定测试清单之外的旧链接: {path}")
+
     for case in cases:
         _safe_symlink(HCC_RAW / "imagesTr" / f"{case}_0000.nii.gz", IMAGE_DIR / f"{case}_0000.nii.gz")
         _safe_symlink(HCC_RAW / "labelsTr" / f"{case}.nii.gz", LABEL_DIR / f"{case}.nii.gz")
@@ -115,8 +126,21 @@ def _patch_report_header(
         "nnUNet External Validation Report (HCCReferencedCT fixed test)",
     )
     marker = f"method   : {method}\n"
-    is_hcc_trained = str(dataset).lstrip("0") == "13" or "HCCAdapter" in trainer
-    if is_hcc_trained:
+    dataset_text = str(dataset)
+    dataset_id = (
+        int(dataset_text.removeprefix("Dataset")[:3])
+        if dataset_text.startswith("Dataset")
+        else int(dataset_text)
+    )
+    is_hcc_adapted = dataset_id == 13 or "HCCAdapter" in trainer
+    is_msd_hcc_mixed = "MSDHCCPretrain" in trainer or "MSDHCCMix" in trainer
+    if is_msd_hcc_mixed:
+        provenance = (
+            f"checkpoint: {checkpoint}\n"
+            f"model_source: Dataset003_Liver-plan mixed-source model ({trainer}); "
+            "MSD train and HCC train cases used for fitting; HCC val/test excluded from fitting and model selection\n"
+        )
+    elif is_hcc_adapted:
         provenance = (
             f"checkpoint: {checkpoint}\n"
             f"model_source: Dataset013_HCCReferencedCT-trained/adapted model ({trainer}); "

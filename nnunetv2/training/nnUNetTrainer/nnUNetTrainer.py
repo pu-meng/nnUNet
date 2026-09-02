@@ -118,6 +118,7 @@ class nnUNetTrainer(object):
 
         ###  Saving all the init args into class variables for later access
         continue_training = plans.pop("continue_training")
+        self.continue_training = bool(continue_training)
         logger_config = {"plans": plans, "configuration": configuration, "fold": fold, "dataset": dataset_json}
         self.plans_manager = PlansManager(plans)
         self.configuration_manager = self.plans_manager.get_configuration(configuration)
@@ -197,6 +198,13 @@ class nnUNetTrainer(object):
         self.disable_checkpointing = False
 
         self.was_initialized = False
+
+        # Per-run resource accounting. These values are deliberately stored in
+        # a separate JSON file instead of the checkpoint logger so older
+        # checkpoints remain loadable without a logging-schema migration.
+        self._resource_epoch_started_at = None
+        self._resource_validation_started_at = None
+        self._resource_train_duration_s = None
 
         self.print_to_log_file("\n#######################################################################\n"
                                "Please cite the following paper when using nnU-Net:\n"
@@ -979,6 +987,7 @@ class nnUNetTrainer(object):
         self.plot_network_architecture()
 
         self._save_debug_information()
+        self._initialize_resource_usage_log()
 
         # print(f"batch size: {self.batch_size}")
         # print(f"oversample: {self.oversample_foreground_percent}")
@@ -1079,6 +1088,11 @@ class nnUNetTrainer(object):
         self.logger.log('train_losses', loss_here, self.current_epoch)
 
     def on_validation_epoch_start(self):
+        self._synchronize_resource_device()
+        now = time()
+        if self._resource_epoch_started_at is not None:
+            self._resource_train_duration_s = now - self._resource_epoch_started_at
+        self._resource_validation_started_at = now
         self.network.eval()
 
     def validation_step(self, batch: dict) -> dict:
@@ -1182,10 +1196,19 @@ class nnUNetTrainer(object):
         self.logger.log('val_losses', loss_here, self.current_epoch)
 
     def on_epoch_start(self):
+        self._synchronize_resource_device()
+        if self.device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(self.device)
+        self._resource_epoch_started_at = time()
+        self._resource_validation_started_at = None
+        self._resource_train_duration_s = None
         self.logger.log('epoch_start_timestamps', time(), self.current_epoch)
 
     def on_epoch_end(self):
+        self._synchronize_resource_device()
         self.logger.log('epoch_end_timestamps', time(), self.current_epoch)
+
+        self._record_epoch_resource_usage()
 
         self.print_to_log_file('train_loss', np.round(self.logger.get_value('train_losses', step=-1), decimals=4), add_timestamp=False)
         self.print_to_log_file('val_loss', np.round(self.logger.get_value('val_losses', step=-1), decimals=4), add_timestamp=False)
@@ -1209,6 +1232,191 @@ class nnUNetTrainer(object):
             self.logger.plot_progress_png(self.output_folder)
 
         self.current_epoch += 1
+
+    def _synchronize_resource_device(self) -> None:
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+
+    def _distributed_max(self, value: float) -> float:
+        if not self.is_ddp:
+            return float(value)
+        value_tensor = torch.tensor(float(value), device=self.device, dtype=torch.float64)
+        dist.all_reduce(value_tensor, op=dist.ReduceOp.MAX)
+        return float(value_tensor.item())
+
+    def _resource_usage_path(self) -> str:
+        return join(self.output_folder, 'resource_usage.json')
+
+    def _unwrap_network_for_accounting(self) -> nn.Module:
+        mod = self.network.module if self.is_ddp else self.network
+        if isinstance(mod, OptimizedModule):
+            mod = mod._orig_mod
+        return mod
+
+    def _network_is_compiled(self) -> bool:
+        mod = self.network.module if self.is_ddp else self.network
+        return isinstance(mod, OptimizedModule)
+
+    def _initialize_resource_usage_log(self) -> None:
+        """Create/update static resource metadata for every trainer run.
+
+        FLOPs are intentionally not measured in the live training process: a
+        representative forward pass can add substantial time and memory, and
+        some custom operators are unsupported by PyTorch's FLOP counter.
+        Architecture FLOPs belong in a controlled offline benchmark.
+        """
+        local_batch_sizes = [int(self.batch_size)]
+        if self.is_ddp:
+            local_batch_sizes = [None for _ in range(dist.get_world_size())]
+            dist.all_gather_object(local_batch_sizes, int(self.batch_size))
+
+        if self.local_rank != 0:
+            return
+
+        mod = self._unwrap_network_for_accounting()
+        path = self._resource_usage_path()
+        payload = load_json(path) if self.continue_training and isfile(path) else {}
+        now = datetime.now().astimezone().isoformat(timespec='seconds')
+        payload.setdefault('schema_version', 1)
+        payload.setdefault('started_at', now)
+        payload['last_started_or_resumed_at'] = now
+        payload['run'] = {
+            'dataset': self.plans_manager.dataset_name,
+            'trainer': self.__class__.__name__,
+            'configuration': self.configuration_name,
+            'fold': self.fold,
+            'output_folder': self.output_folder,
+            'patch_size': [int(i) for i in self.configuration_manager.patch_size],
+            'global_batch_size': int(sum(local_batch_sizes)),
+            'batch_size_per_rank': [int(i) for i in local_batch_sizes],
+            'world_size': int(dist.get_world_size()) if self.is_ddp else 1,
+            'num_iterations_per_epoch': int(self.num_iterations_per_epoch),
+            'num_val_iterations_per_epoch': int(self.num_val_iterations_per_epoch),
+            'amp': self.device.type == 'cuda',
+            'torch_compile': self._network_is_compiled(),
+            'device_type': self.device.type,
+            'gpu_names': [
+                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+            ] if self.device.type == 'cuda' else [],
+            'torch_version': torch.__version__,
+            'cuda_version': torch.version.cuda,
+        }
+        previous_model = payload.get('model', {})
+        payload['model'] = {
+            'parameters_total': int(sum(p.numel() for p in mod.parameters())),
+            'parameters_trainable': int(sum(p.numel() for p in mod.parameters() if p.requires_grad)),
+            'flops': previous_model.get('flops'),
+            'flops_status': previous_model.get(
+                'flops_status',
+                'not measured during training; use a controlled offline architecture benchmark',
+            ),
+        }
+        if 'flops_protocol' in previous_model:
+            payload['model']['flops_protocol'] = previous_model['flops_protocol']
+        payload.setdefault('epochs', [])
+        save_json(payload, path, sort_keys=False)
+
+    def _record_epoch_resource_usage(self) -> None:
+        """Persist timing, throughput, and per-GPU peak CUDA memory for an epoch."""
+        epoch_end = self.logger.get_value('epoch_end_timestamps', step=-1)
+        epoch_start = self.logger.get_value('epoch_start_timestamps', step=-1)
+        epoch_duration_s = self._distributed_max(epoch_end - epoch_start)
+
+        train_duration_s = self._resource_train_duration_s
+        if train_duration_s is not None:
+            train_duration_s = self._distributed_max(train_duration_s)
+
+        validation_duration_s = None
+        if self._resource_validation_started_at is not None:
+            validation_duration_s = self._distributed_max(time() - self._resource_validation_started_at)
+
+        peak_allocated_bytes = None
+        peak_reserved_bytes = None
+        if self.device.type == 'cuda':
+            peak_allocated_bytes = int(self._distributed_max(torch.cuda.max_memory_allocated(self.device)))
+            peak_reserved_bytes = int(self._distributed_max(torch.cuda.max_memory_reserved(self.device)))
+
+        if self.local_rank != 0:
+            return
+
+        path = self._resource_usage_path()
+        payload = load_json(path) if isfile(path) else {'schema_version': 1, 'epochs': []}
+        global_batch_size = int(payload.get('run', {}).get('global_batch_size', self.batch_size))
+        samples = global_batch_size * int(self.num_iterations_per_epoch)
+        entry = {
+            'epoch': int(self.current_epoch),
+            'recorded_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+            'patch_size': [int(i) for i in self.configuration_manager.patch_size],
+            'epoch_duration_s': float(epoch_duration_s),
+            'train_duration_s': float(train_duration_s) if train_duration_s is not None else None,
+            'validation_duration_s': float(validation_duration_s) if validation_duration_s is not None else None,
+            'train_samples': int(samples),
+            'train_samples_per_s': float(samples / train_duration_s) if train_duration_s else None,
+            'peak_memory_allocated_bytes_per_gpu_max': peak_allocated_bytes,
+            'peak_memory_reserved_bytes_per_gpu_max': peak_reserved_bytes,
+        }
+        epochs = [item for item in payload.setdefault('epochs', []) if item.get('epoch') != self.current_epoch]
+        epochs.append(entry)
+        epochs.sort(key=lambda item: item['epoch'])
+        payload['epochs'] = epochs
+        payload['summary'] = {
+            'epochs_recorded': len(epochs),
+            'total_epoch_time_s': float(sum(item['epoch_duration_s'] for item in epochs)),
+            'max_peak_memory_allocated_bytes_per_gpu': max(
+                (item['peak_memory_allocated_bytes_per_gpu_max'] for item in epochs
+                 if item['peak_memory_allocated_bytes_per_gpu_max'] is not None),
+                default=None,
+            ),
+            'max_peak_memory_reserved_bytes_per_gpu': max(
+                (item['peak_memory_reserved_bytes_per_gpu_max'] for item in epochs
+                 if item['peak_memory_reserved_bytes_per_gpu_max'] is not None),
+                default=None,
+            ),
+        }
+        save_json(payload, path, sort_keys=False)
+
+    def _record_inference_resource_usage(
+        self,
+        scope: str,
+        started_at: float,
+        n_cases: int,
+        protocol: str,
+    ) -> None:
+        """Record end-to-end inference time and peak memory for one case set."""
+        self._synchronize_resource_device()
+        duration_s = self._distributed_max(time() - started_at)
+        peak_allocated = peak_reserved = None
+        if self.device.type == 'cuda':
+            peak_allocated = int(self._distributed_max(torch.cuda.max_memory_allocated(self.device)))
+            peak_reserved = int(self._distributed_max(torch.cuda.max_memory_reserved(self.device)))
+        if self.local_rank != 0:
+            return
+
+        path = join(self.output_folder, 'inference_usage.json')
+        payload = load_json(path) if isfile(path) else {'schema_version': 1, 'entries': []}
+        entry = {
+            'scope': scope,
+            'recorded_at': datetime.now().astimezone().isoformat(timespec='seconds'),
+            'source': 'automatic runtime measurement',
+            'protocol': protocol,
+            'n_cases': int(n_cases),
+            'duration_s': float(duration_s),
+            'seconds_per_case': float(duration_s / n_cases) if n_cases else None,
+            'gpu_count': int(dist.get_world_size()) if self.is_ddp else 1,
+            'gpu_names': [
+                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+            ] if self.device.type == 'cuda' else [],
+            'peak_allocated': peak_allocated,
+            'peak_reserved': peak_reserved,
+            'tile_step_size': 0.5,
+            'use_gaussian': True,
+            'use_mirroring': True,
+            'perform_everything_on_device': True,
+            'training_state_released': bool(getattr(self, '_inference_training_state_released', False)),
+            'checkpoint_epoch': int(self.current_epoch),
+        }
+        payload.setdefault('entries', []).append(entry)
+        save_json(payload, path, sort_keys=False)
 
     def save_checkpoint(self, filename: str) -> None:
         if self.local_rank == 0:
@@ -1274,6 +1482,10 @@ class nnUNetTrainer(object):
                 self.grad_scaler.load_state_dict(checkpoint['grad_scaler_state'])
 
     def perform_actual_validation(self, save_probabilities: bool = False):
+        self._synchronize_resource_device()
+        if self.device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(self.device)
+        inference_started_at = time()
         self.set_deep_supervision_enabled(False)
         self.network.eval()
 
@@ -1302,6 +1514,7 @@ class nnUNetTrainer(object):
             # we cannot use self.get_tr_and_val_datasets() here because we might be DDP and then we have to distribute
             # the validation keys across the workers.
             _, val_keys = self.do_split()
+            n_validation_cases = len(val_keys)
             if self.is_ddp:
                 last_barrier_at_idx = len(val_keys) // dist.get_world_size() - 1
 
@@ -1431,6 +1644,15 @@ class nnUNetTrainer(object):
 
         self.set_deep_supervision_enabled(True)
         compute_gaussian.cache_clear()
+        self._record_inference_resource_usage(
+            scope='validation',
+            started_at=inference_started_at,
+            n_cases=n_validation_cases,
+            protocol=(
+                'preprocessed case load + sliding-window inference + asynchronous NIfTI export '
+                '+ summary.json metrics; excludes report and visualization'
+            ),
+        )
 
     def run_training(self):
         self.on_train_start()

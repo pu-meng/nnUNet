@@ -1,0 +1,22 @@
+dataset,case_id,failed_methods,total_methods,failure_proportion,all_methods_failed,majority_failed,failure_threshold
+HCCReferencedCT v2,HCC_003,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_011,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_026,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_055,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_068,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_078,30,30,1.0,True,True,0.3
+HCCReferencedCT v2,HCC_052,28,30,0.9333333333333333,False,True,0.3
+HCCReferencedCT v2,HCC_020,27,30,0.9,False,True,0.3
+HCCReferencedCT v2,HCC_047,27,30,0.9,False,True,0.3
+HCCReferencedCT v2,HCC_082,27,30,0.9,False,True,0.3
+HCCReferencedCT v2,HCC_060,20,30,0.6666666666666666,False,True,0.3
+HCCReferencedCT v2,HCC_028,12,30,0.4,False,False,0.3
+HCCReferencedCT v2,HCC_071,12,30,0.4,False,False,0.3
+HCCReferencedCT v2,HCC_021,7,30,0.23333333333333334,False,False,0.3
+HCCReferencedCT v2,HCC_083,7,30,0.23333333333333334,False,False,0.3
+HCCReferencedCT v2,HCC_081,6,30,0.2,False,False,0.3
+HCCReferencedCT v2,HCC_025,5,30,0.16666666666666666,False,False,0.3
+HCCReferencedCT v2,HCC_102,4,30,0.13333333333333333,False,False,0.3
+HCCReferencedCT v2,HCC_058,3,30,0.1,False,False,0.3
+HCCReferencedCT v2,HCC_059,3,30,0.1,False,False,0.3
+HCCReferencedCT v2,HCC_093,2,30,0.06666666666666667,False,False,0.3

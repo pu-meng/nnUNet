@@ -1,43 +1,21 @@
-# 个人笔记索引
+# nnUNet 项目笔记索引
 
-> 在 Obsidian 中打开 `~/notes/` 目录，`[[链接]]` 可直接点击跳转
+本目录只保留 nnU-Net、MedNeXt、肝脏肿瘤分割、实验分析和论文写作相关内容。
 
----
+## 主要入口
 
-## 日常收集
+- [`md/README.md`](md/README.md)：按主题整理的技术与研究笔记。
+- [`paper/README.md`](paper/README.md)：论文正文、图表、参考资料与实验记录入口。
+- [`paper/实验与分析/README.md`](paper/实验与分析/README.md)：当前实验设计、结果审计和结构分析。
+- [`data/`](data/)：数据集检查、转换与统计脚本。
+- [`实验结果分析/`](实验结果分析/)：病例级分析程序及输出。
+- [`jupyter/`](jupyter/)：项目相关探索性 notebook。
+- [`sh/README.md`](sh/README.md)：实验、评估和分析辅助脚本索引。
 
-- [[inbox]] — 临时存放，不知道分类的内容先丢这里
-- [[ideas]] — 想法、感悟、灵感（含新肝脏数据集泛化性验证思路）
+## 整理说明
 
----
+2026-08-13 已将求职资料、小说、华为学习笔记、服务器 SSH 运维脚本、个人 Shell 配置和无关实验日志移到仓库外的可恢复目录：
 
-## 科研 / 论文
+`/media/8T/PuMengYu/archive/nnUNet_moved_out_20260813/`
 
-- [[research]] — 实验记录、论文笔记
-- [[MED_VQA_READ]] — 医学 VQA 项目说明（选修课作业 + 科研结合）
-- [两阶段肝脏肿瘤分割笔记](../MSD_LiverTumorSeg/twostage_medseg/notes/INDEX.md) — 主项目详细索引
-
----
-
-## nnUNet 参考
-
-- [[nnUNet/nnUNet_details]] — nnUNet 实现细节
-- [[nnUNet/pipeline_nnUNet]] — nnUNet 完整 pipeline 说明
-
----
-
-## 技术备忘
-
-- [[tech]] — 代理、环境配置、git、Python、LaTeX 踩坑记录
-- [[snippets]] — 常用代码片段
-
----
-
-## 求职
-
-- [[huawei/华为机考备考策略]] — AI 应用工程师岗位备考计划
-- [[huawei/华为机考复习资料]] — 机器学习基础（决策树、随机森林等）
-
----
-
-*新建笔记后在对应分区加一行链接。临时内容先扔 [[inbox]]，整理后再归类。*
+项目内仍被代码或文档引用的旧脚本暂不做大范围重构；后续按实验链逐项迁移并同步引用。

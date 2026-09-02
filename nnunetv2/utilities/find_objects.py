@@ -30,16 +30,43 @@ def recursive_find_trainer_class_by_name(trainer_name: str):
             for path in ext_paths:
                 if path.strip() and os.path.exists(path):
                     print(f"Searching in: {path}")
-                    nnunet_trainer = recursive_find_python_class(
-                        path,
-                        trainer_name,
-                        None,
-                        base_folder=path,
-                        verbose=True,
-                        cleanup_imports_from_base_folder=True,
-                    )
+                    package_trainers = join(path, "trainers")
+                    package_init = join(path, "__init__.py")
+                    if os.path.isdir(package_trainers) and os.path.isfile(package_init):
+                        package_name = os.path.basename(os.path.abspath(path))
+                        search_locations = [
+                            (package_trainers, f"{package_name}.trainers", os.path.dirname(os.path.abspath(path)))
+                        ]
+                    else:
+                        search_locations = [(path, None, path)]
+
+                    for search_folder, current_module, base_folder in search_locations:
+                        candidate = recursive_find_python_class(
+                            search_folder,
+                            trainer_name,
+                            current_module,
+                            base_folder=base_folder,
+                            verbose=True,
+                            cleanup_imports_from_base_folder=True,
+                        )
+                        if candidate is not None:
+                            # The cleanup pass is required while trying multiple external
+                            # roots with overlapping package names. Once a class is found,
+                            # however, its defining modules must remain in sys.modules so
+                            # multiprocessing workers can pickle Trainer-owned datasets.
+                            # Repeat the successful lookup without cleanup and return that
+                            # persistent class object.
+                            nnunet_trainer = recursive_find_python_class(
+                                search_folder,
+                                trainer_name,
+                                current_module,
+                                base_folder=base_folder,
+                                verbose=False,
+                                cleanup_imports_from_base_folder=False,
+                            )
+                            print(f"Using trainer '{trainer_name}' from: {path}")
+                            break
                     if nnunet_trainer is not None:
-                        print(f"Using trainer '{trainer_name}' from: {path}")
                         break
         if nnunet_trainer is None:
             raise RuntimeError(

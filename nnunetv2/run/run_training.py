@@ -120,6 +120,12 @@ def run_ddp(rank, dataset_name_or_id, configuration, fold, tr, p, disable_checkp
 
     if not val:
         nnunet_trainer.run_training()
+        # DDP is used for training only. Once every rank has returned from
+        # run_training, leave the process group and let the parent process run
+        # validation once on a single GPU. This also prevents non-zero ranks
+        # from reading a checkpoint while rank 0 is still writing it.
+        cleanup_ddp()
+        return
 
     if val_with_best:
         nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
@@ -156,7 +162,7 @@ def run_training(dataset_name_or_id: Union[str, int],
     if val_with_best:
         assert not disable_checkpointing, '--val_best is not compatible with --disable_checkpointing'
 
-    if num_gpus > 1:
+    if num_gpus > 1 and not only_run_validation:
         assert device.type == 'cuda', f"DDP training (triggered by num_gpus > 1) is only implemented for cuda devices. Your device: {device}"
 
         os.environ['MASTER_ADDR'] = 'localhost'
@@ -181,6 +187,23 @@ def run_training(dataset_name_or_id: Union[str, int],
                      num_gpus),
                  nprocs=num_gpus,
                  join=True)
+
+        # All DDP training workers have exited and checkpoint writes are now
+        # complete. Perform validation/test/report generation exactly once on
+        # the parent process (CUDA device 0 in the visible device set).
+        nnunet_trainer = get_trainer_from_args(
+            dataset_name_or_id,
+            configuration,
+            fold,
+            trainer_class_name,
+            plans_identifier,
+            False,
+            device=device,
+        )
+        maybe_load_checkpoint(nnunet_trainer, False, True, None)
+        if val_with_best:
+            nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
+        nnunet_trainer.perform_actual_validation(export_validation_probabilities)
     else:
         nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, trainer_class_name,
                                                plans_identifier, continue_training, device=device)

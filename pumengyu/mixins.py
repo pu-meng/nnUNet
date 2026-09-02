@@ -42,6 +42,7 @@ AutoReportMixin
 
 from __future__ import annotations
 import importlib.util as _ilu
+import json as _json
 import os as _os#_os是os模块的别名
 from os.path import join
 
@@ -167,6 +168,124 @@ class HCCMixTrainingMixin:
             f"channel_map={self.MIX_HCC_CHANNEL_MAP}"
         )
         return mixed_tr, dataset_val
+
+
+class MSDHCCReferencedTrainPretrainMixin:
+    """Strict train-only MSD + HCCReferencedCT runtime mixture.
+
+    The primary dataset must be ``Dataset003_Liver`` so preprocessing plans,
+    network shape and validation semantics stay identical to the paper's
+    MSD-only MedNeXt_MLA_MoE experiment. Only the 70 HCC cases recorded in the
+    fixed 70/10/21 train split are appended. MSD validation remains the
+    Dataset003 fold-0 validation set and neither dataset's test cases can enter
+    gradient updates.
+    """
+
+    MIX_PRIMARY_DATASET = "Dataset003_Liver"
+    MIX_PRIMARY_SPLIT_INFO = "split_info_712.json"
+    MIX_HCC_DATASET = "Dataset013_HCCReferencedCT"
+    MIX_HCC_SPLIT_INFO = "split_info_701020_stratified_v2.json"
+    MIX_EXPECTED_MSD_TRAIN = 92
+    MIX_EXPECTED_MSD_VAL = 13
+    MIX_EXPECTED_HCC_TRAIN = 70
+    MIX_EXPECTED_HCC_VAL = 10
+    MIX_EXPECTED_HCC_TEST = 21
+
+    @staticmethod
+    def _read_recorded_split(path: Path) -> tuple[list[str], list[str], list[str]]:
+        if not path.is_file():
+            raise FileNotFoundError(f"Required split provenance file is missing: {path}")
+        with path.open(encoding="utf-8") as f:
+            split_info = _json.load(f)
+        try:
+            train = list(split_info["train"]["cases"])
+            val = list(split_info["val"]["cases"])
+            test = list(split_info["test"]["cases"])
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"Invalid train/val/test structure in {path}") from exc
+        if set(train) & set(val) or set(train) & set(test) or set(val) & set(test):
+            raise RuntimeError(f"Data leakage detected: overlapping split cases in {path}")
+        return train, val, test
+
+    def get_tr_and_val_datasets(self):
+        msd_train_dataset, msd_val_dataset = super().get_tr_and_val_datasets()  # type: ignore
+
+        primary_name = self.plans_manager.dataset_name  # type: ignore
+        if primary_name != self.MIX_PRIMARY_DATASET:
+            raise RuntimeError(
+                f"MSD/HCC pretraining must run with -d {self.MIX_PRIMARY_DATASET}; got {primary_name}. "
+                "Dataset003 plans are required so the checkpoint is directly compatible with MSD fine-tuning."
+            )
+        if int(self.num_input_channels) != 1:  # type: ignore[arg-type]
+            raise RuntimeError(
+                f"MSD/HCC referenced-CT pretraining requires one input channel; got {self.num_input_channels}."
+            )
+
+        primary_root = Path(nnUNet_preprocessed) / self.MIX_PRIMARY_DATASET
+        msd_train, msd_val, _ = self._read_recorded_split(
+            primary_root / self.MIX_PRIMARY_SPLIT_INFO
+        )
+        if set(msd_train_dataset.identifiers) != set(msd_train):
+            raise RuntimeError(
+                "Active Dataset003 splits_final.json does not match split_info_712.json train cases; "
+                "refusing mixed pretraining to prevent leakage."
+            )
+        if set(msd_val_dataset.identifiers) != set(msd_val):
+            raise RuntimeError(
+                "Active Dataset003 splits_final.json does not match split_info_712.json validation cases; "
+                "refusing mixed pretraining."
+            )
+        if len(msd_train) != self.MIX_EXPECTED_MSD_TRAIN or len(msd_val) != self.MIX_EXPECTED_MSD_VAL:
+            raise RuntimeError(
+                f"Unexpected MSD split counts: train={len(msd_train)}, val={len(msd_val)}; "
+                f"expected {self.MIX_EXPECTED_MSD_TRAIN}/{self.MIX_EXPECTED_MSD_VAL}."
+            )
+
+        hcc_root = Path(nnUNet_preprocessed) / self.MIX_HCC_DATASET
+        hcc_train, hcc_val, hcc_test = self._read_recorded_split(
+            hcc_root / self.MIX_HCC_SPLIT_INFO
+        )
+        observed_hcc_counts = (len(hcc_train), len(hcc_val), len(hcc_test))
+        expected_hcc_counts = (
+            self.MIX_EXPECTED_HCC_TRAIN,
+            self.MIX_EXPECTED_HCC_VAL,
+            self.MIX_EXPECTED_HCC_TEST,
+        )
+        if observed_hcc_counts != expected_hcc_counts:
+            raise RuntimeError(
+                f"Unexpected HCC split counts: {observed_hcc_counts}; expected {expected_hcc_counts}."
+            )
+
+        hcc_folder = hcc_root / self.configuration_manager.data_identifier  # type: ignore
+        if not hcc_folder.is_dir():
+            raise FileNotFoundError(f"HCC preprocessed data folder is missing: {hcc_folder}")
+        from nnunetv2.training.dataloading.nnunet_dataset import infer_dataset_class
+
+        hcc_dataset_class = infer_dataset_class(str(hcc_folder))
+        available_hcc = set(hcc_dataset_class.get_identifiers(str(hcc_folder)))
+        missing_hcc = sorted(set(hcc_train) - available_hcc)
+        if missing_hcc:
+            raise RuntimeError(f"Missing HCC train cases in preprocessed dataset: {missing_hcc}")
+        hcc_train_dataset = hcc_dataset_class(str(hcc_folder), identifiers=hcc_train)
+
+        mixed_train = _RuntimeMixedDataset(
+            msd_train_dataset,
+            hcc_train_dataset,
+            primary_prefix="msd",
+            extra_prefix="hcc",
+            extra_channel_map="identity",
+            target_channels=1,
+            extra_repeat=1,
+        )
+        self.print_to_log_file(  # type: ignore
+            "[MSDHCCPretrain] strict train-only mixture: "
+            f"MSD train={len(msd_train_dataset.identifiers)}, "
+            f"HCC train={len(hcc_train_dataset.identifiers)}, "
+            f"mixed={len(mixed_train.identifiers)}; "
+            f"validation=MSD-only n={len(msd_val_dataset.identifiers)}; "
+            "HCC val/test and MSD test excluded from gradients."
+        )
+        return mixed_train, msd_val_dataset
 
 # ------------------------------------------------------------------ #
 # UnifiedFocalLoss 辅助：懒加载官方库，避免启动时强依赖               #
@@ -1431,6 +1550,19 @@ class AutoReportMixin:
         # 这里强制加载，避免训练命令遗漏 --val_best 时回落到 final。
         best_checkpoint = Path(self.output_folder) / "checkpoint_best.pth"  # type: ignore
         if best_checkpoint.is_file():
+            final_checkpoint = Path(self.output_folder) / "checkpoint_final.pth"  # type: ignore
+            if final_checkpoint.is_file() and best_checkpoint.stat().st_mtime > final_checkpoint.stat().st_mtime:
+                best_meta = torch.load(best_checkpoint, map_location="cpu", weights_only=False)
+                final_meta = torch.load(final_checkpoint, map_location="cpu", weights_only=False)
+                best_epoch = int(best_meta.get("current_epoch", -1))
+                final_epoch = int(final_meta.get("current_epoch", -1))
+                del best_meta, final_meta
+                if 0 <= best_epoch < final_epoch:
+                    raise RuntimeError(
+                        "checkpoint_best.pth 晚于 final 但 epoch 倒退，疑似被短试跑覆盖；"
+                        f"best epoch={best_epoch}, final epoch={final_epoch}。"
+                        "拒绝生成正式 best-only 报告。"
+                    )
             self.load_checkpoint(str(best_checkpoint))  # type: ignore
             self.print_to_log_file(  # type: ignore
                 f"[BestCheckpoint] 已加载 {best_checkpoint} 用于 validation/test",
@@ -1438,12 +1570,45 @@ class AutoReportMixin:
             )
         else:
             raise FileNotFoundError(f"正式验证要求 checkpoint_best.pth，但文件不存在: {best_checkpoint}")
+
+        # A trainer checkpoint also restores optimizer/scaler tensors to CUDA.
+        # They are training cost, not deployment cost, so release them before
+        # measuring inference peak memory.
+        self.optimizer = None  # type: ignore
+        self.lr_scheduler = None  # type: ignore
+        self.grad_scaler = None  # type: ignore
+        self._inference_training_state_released = True  # type: ignore
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         super().perform_actual_validation(save_probabilities)  # type: ignore
+        if getattr(self, "local_rank", 0) != 0:
+            return
+
+        dataset_name = self.plans_manager.dataset_name  # type: ignore
+        gt_dir = Path(nnUNet_preprocessed) / dataset_name / "gt_segmentations"
+        img_dir = Path(nnUNet_raw) / dataset_name / "imagesTr"
+        run_auto_report(
+            self.output_folder,  # type: ignore
+            gt_dir,
+            img_dir,
+            no_vis=False,
+            out_dir=self.output_folder,  # type: ignore
+            pred_subdir="validation",
+        )
+        report_path = Path(self.output_folder) / "report_custom.txt"  # type: ignore
+        viz_dir = Path(self.output_folder) / "vis_png_custom"  # type: ignore
+        viz_png = sum(1 for _ in viz_dir.rglob("*.png")) if viz_dir.is_dir() else 0
+        if not report_path.is_file() or report_path.stat().st_size == 0:
+            raise RuntimeError(f"validation 报告生成失败: {report_path}")
+        if viz_png == 0:
+            raise RuntimeError(f"validation 可视化生成失败或无 PNG: {viz_dir}")
 
 
 class AutoInternalTestMixin:
     """
-    perform_actual_validation 结束后，自动对 split_info_712.json 中的 test 集进行推理并生成报告。
+    perform_actual_validation 结束后，自动对 split_info_712.json 中的 test 集进行推理并生成报告，
+    然后依次完成 IRCADb 和 HCCReferencedCT 外部验证。
     预测结果保存到 fold_X/test_prediction/，报告写到 fold_X/test_report_custom.txt。
 
     使用方式（MRO 需在 AutoReportMixin 左侧）：
@@ -1526,51 +1691,96 @@ class AutoInternalTestMixin:
         method = trainer_name.removeprefix("nnUNetTrainer_")
         return method.replace("SizeOversample", "SizeOV")
 
+    @staticmethod
+    def _external_expected_cases(domain: str) -> list[str]:
+        workspace = Path("/home/PuMengYu/nnUNet_workspace")
+        if domain == "IRCADb":
+            info_path = workspace / "external_val" / "ircadb_full" / "case_info.json"
+            if not info_path.is_file():
+                raise FileNotFoundError(f"IRCADb case_info 不存在: {info_path}")
+            data = _json.loads(info_path.read_text(encoding="utf-8"))
+            cases = list(data)
+        elif domain == "HCC":
+            split_path = (
+                workspace / "preprocessed" / "Dataset013_HCCReferencedCT"
+                / "split_info_701020_stratified_v2.json"
+            )
+            if not split_path.is_file():
+                raise FileNotFoundError(f"HCC split_info 不存在: {split_path}")
+            data = _json.loads(split_path.read_text(encoding="utf-8"))
+            try:
+                cases = list(data["test"]["cases"])
+            except (KeyError, TypeError) as exc:
+                raise RuntimeError(f"HCC split_info 缺少 test.cases: {split_path}") from exc
+        else:
+            raise ValueError(f"未知外部验证域: {domain}")
+
+        if not cases:
+            raise RuntimeError(f"{domain} 预期病例清单为空")
+        return cases
+
+    @staticmethod
+    def _external_artifact_status(
+        result_dir: Path,
+        expected_cases: list[str],
+        require_viz: bool = True,
+    ) -> tuple[bool, str]:
+        """严格区分“有预测”与“完整产物完成”。"""
+        pred_dir = result_dir / "predictions"
+        expected = set(expected_cases)
+        predicted = {
+            path.name.removesuffix(".nii.gz")
+            for path in pred_dir.glob("*.nii.gz")
+        } if pred_dir.is_dir() else set()
+        missing = sorted(expected - predicted)
+        stale = sorted(predicted - expected)
+
+        summary_path = pred_dir / "summary.json"
+        summary_cases = -1
+        if summary_path.is_file() and summary_path.stat().st_size > 0:
+            try:
+                summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+                summary_cases = len(summary.get("metric_per_case", []))
+            except (OSError, ValueError, TypeError):
+                summary_cases = -1
+
+        report_path = result_dir / "report_custom.txt"
+        report_ok = report_path.is_file() and report_path.stat().st_size > 0
+        viz_dir = result_dir / "test_viz"
+        viz_png = sum(1 for _ in viz_dir.rglob("*.png")) if viz_dir.is_dir() else 0
+
+        complete = (
+            not missing
+            and not stale
+            and len(predicted) == len(expected)
+            and summary_cases == len(expected)
+            and report_ok
+            and (viz_png > 0 or not require_viz)
+        )
+        detail = (
+            f"预测={len(predicted)}/{len(expected)}, 缺失={missing or '无'}, "
+            f"陈旧={stale or '无'}, summary={summary_cases}/{len(expected)}, "
+            f"报告={'有' if report_ok else '无'}, PNG={viz_png}"
+        )
+        return complete, detail
+
     def _run_external_validation_after_internal_test(self):
         if not self._auto_external_enabled():
             self.print_to_log_file("[ExternalVal] PMY_AUTO_EXTERNAL_VAL=0，跳过自动外部验证")  # type: ignore
             return
 
         import subprocess
+        import sys
 
         method = self._auto_external_method_name()
-        result_dir = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only") / method
-        report_path = result_dir / "report_custom.txt"
-
-        if report_path.exists() and not self._auto_external_force():
-            self.print_to_log_file(  # type: ignore
-                f"[ExternalVal] 已存在 {report_path}，跳过。设置 PMY_AUTO_EXTERNAL_FORCE=1 可重跑。",
-                also_print_to_console=True,
-            )
-            return
-
         repo_root = Path("/home/PuMengYu/nnUNet")
-        report_py = repo_root / "pumengyu" / "ext_val" / "03_gen_method_report.py"
         trainer_name = self.__class__.__name__
         dataset_name = self.plans_manager.dataset_name  # type: ignore
         gpu = self._auto_external_gpu()
-
-        cmd = [
-            "python", str(report_py),
-            "--method", method,
-            "--predict",
-            "--trainer", trainer_name,
-            "--dataset", dataset_name,
-            "--fold", str(getattr(self, "fold", 0)),
-            "--gpu", str(gpu),
-            "--checkpoint", "checkpoint_best.pth",
-        ]
-        if self._auto_external_no_vis():
-            cmd.append("--no_vis")
-
+        no_vis = self._auto_external_no_vis()
+        force = self._auto_external_force()
         env = _os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
-
-        self.print_to_log_file(  # type: ignore
-            f"[ExternalVal] 内部测试完成，开始自动 IRCADb 外部验证: {method}",
-            also_print_to_console=True,
-        )
-        self.print_to_log_file(f"[ExternalVal] cmd: CUDA_VISIBLE_DEVICES={gpu} {' '.join(cmd)}")  # type: ignore
 
         try:
             self.network.to("cpu")  # type: ignore
@@ -1581,18 +1791,93 @@ class AutoInternalTestMixin:
         except Exception as e:
             self.print_to_log_file(f"[ExternalVal] 释放显存时出现警告: {e}")  # type: ignore
 
-        subprocess.run(cmd, cwd=str(repo_root), env=env, check=True)
+        jobs = [
+            (
+                "IRCADb",
+                repo_root / "pumengyu" / "ext_val" / "03_gen_method_report.py",
+                Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only") / method,
+            ),
+            (
+                "HCC",
+                repo_root / "pumengyu" / "ext_val" / "05_gen_hcc_test_report.py",
+                Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_HCCReferencedCT") / method,
+            ),
+        ]
+        statuses: list[str] = []
+        failures: list[str] = []
+
+        for domain, report_py, result_dir in jobs:
+            try:
+                expected_cases = self._external_expected_cases(domain)
+                complete, detail = self._external_artifact_status(
+                    result_dir,
+                    expected_cases,
+                    require_viz=not no_vis,
+                )
+                if complete and not force:
+                    status = f"{domain}=完成（复用；{detail}）"
+                    statuses.append(status)
+                    self.print_to_log_file(f"[ExternalVal][{domain}] {status}")  # type: ignore
+                    continue
+
+                cmd = [
+                    sys.executable, str(report_py),
+                    "--method", method,
+                    "--predict",
+                    "--trainer", trainer_name,
+                    "--dataset", dataset_name,
+                    "--fold", str(getattr(self, "fold", 0)),
+                    "--gpu", str(gpu),
+                    "--checkpoint", "checkpoint_best.pth",
+                ]
+                if no_vis:
+                    cmd.append("--no_vis")
+                if force:
+                    cmd.append("--force_predict")
+
+                self.print_to_log_file(  # type: ignore
+                    f"[ExternalVal][{domain}] 开始: {method}；当前产物: {detail}",
+                    also_print_to_console=True,
+                )
+                self.print_to_log_file(  # type: ignore
+                    f"[ExternalVal][{domain}] cmd: CUDA_VISIBLE_DEVICES={gpu} {' '.join(cmd)}"
+                )
+                subprocess.run(cmd, cwd=str(repo_root), env=env, check=True)
+
+                complete, detail = self._external_artifact_status(
+                    result_dir,
+                    expected_cases,
+                    require_viz=not no_vis,
+                )
+                if not complete:
+                    raise RuntimeError(f"子进程结束后产物仍不完整: {detail}")
+                status = f"{domain}=完成（{detail}）"
+                statuses.append(status)
+                self.print_to_log_file(  # type: ignore
+                    f"[ExternalVal][{domain}] 完成: {result_dir}",
+                    also_print_to_console=True,
+                )
+            except Exception as exc:
+                failure = f"{domain}=失败（{exc}）"
+                statuses.append(failure)
+                failures.append(failure)
+                self.print_to_log_file(  # type: ignore
+                    f"[ExternalVal][{domain}] 失败: {exc}",
+                    also_print_to_console=True,
+                )
 
         self.print_to_log_file(  # type: ignore
-            f"[ExternalVal] 完成！报告已写入 {report_path}",
+            f"[ExternalVal] 汇总: {'; '.join(statuses)}",
             also_print_to_console=True,
         )
+        if failures:
+            raise RuntimeError("; ".join(failures))
 
     def _run_internal_test_prediction(self, save_probabilities: bool = False):
         import json
         import multiprocessing
         import warnings
-        from time import sleep
+        from time import sleep, time
 
         import numpy as np
         import torch
@@ -1620,6 +1905,10 @@ class AutoInternalTestMixin:
         self.print_to_log_file(  # type: ignore
             f"[InternalTest] 开始推理 {len(test_keys)} 个 test cases ...", also_print_to_console=True
         )
+        self._synchronize_resource_device()  # type: ignore
+        if self.device.type == "cuda":  # type: ignore
+            torch.cuda.reset_peak_memory_stats(self.device)  # type: ignore
+        inference_started_at = time()
 
         # 构建 predictor（与 perform_actual_validation 完全相同的参数）
         self.set_deep_supervision_enabled(False)  # type: ignore
@@ -1684,6 +1973,16 @@ class AutoInternalTestMixin:
 
             _ = [r.get() for r in results]
 
+        self._record_inference_resource_usage(  # type: ignore
+            scope="internal_test",
+            started_at=inference_started_at,
+            n_cases=len(test_keys),
+            protocol=(
+                "preprocessed case load + sliding-window inference + asynchronous NIfTI export; "
+                "excludes metrics, report, and visualization"
+            ),
+        )
+
         self.print_to_log_file("[InternalTest] 推理完成，计算指标 ...", also_print_to_console=True)  # type: ignore
 
         from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder
@@ -1722,18 +2021,26 @@ class AutoInternalTestMixin:
             report_name="test_report_custom.txt",
         )
 
+        from pumengyu.tools.analyasis.experiment_cost_report import upsert_cost_section
+        upsert_cost_section(
+            Path(self.output_folder) / "report_custom.txt",  # type: ignore
+            Path(self.output_folder),  # type: ignore
+            "internal_test",
+        )
+
         self.print_to_log_file(
             "[InternalTest] 完成！报告已写入 test_report_custom.txt",
             also_print_to_console=True,
         )  # type: ignore
 
-        # 生成 test PNG 可视化，删除 nii.gz
+        # 生成 test PNG 可视化并保留 NIfTI 预测，确保正式实验产物完整。
         _gen_viz_pngs_and_cleanup(
             pred_folder=test_output_folder,
             gt_dir=gt_dir,
             img_dir=img_dir,
             out_viz_dir=Path(self.output_folder) / "test_viz",  # type: ignore
             log_fn=self.print_to_log_file,  # type: ignore
+            delete_nii=False,
         )
 
 

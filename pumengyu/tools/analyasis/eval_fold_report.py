@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 from pumengyu.tools.analyasis.metric_standard import aggregate_liver_tumor_metrics
+from pumengyu.tools.analyasis.experiment_cost_report import build_cost_section
 
 
 # ───────────────────────────── mode detection ────────────────────────────
@@ -596,6 +597,12 @@ def run_eval_report(val_dir, gt_dir, img_dir,
                          f"  Δ={np.mean(delta_dice):+.4f}")
             lines.append(f"  Recall   Δ={np.mean(delta_recall):+.4f}")
             lines.append(f"  FDR      Δ={np.mean(delta_fdr):+.4f}")
+
+    # Cost belongs in the method's own report. Internal validation/test reports
+    # use fold_X as out_dir; external-only directories will state N/A unless a
+    # source fold resource file is explicitly copied or linked there.
+    scope = "internal_test" if val_dir.name == "test_prediction" else "validation"
+    lines.extend(build_cost_section(out_dir, scope))
 
     report_path = out_dir / report_name
     report_path.write_text("\n".join(lines), encoding="utf-8")

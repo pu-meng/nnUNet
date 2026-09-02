@@ -1,0 +1,196 @@
+{
+  "generated_on": "2026-07-30",
+  "dataset": "3D-IRCADb",
+  "source_only": true,
+  "models": [
+    "MedNeXt",
+    "MedNeXt_MLA_MoE"
+  ],
+  "checkpoints": {
+    "MedNeXt": {
+      "dataset": "Dataset003_Liver",
+      "trainer": "nnUNetTrainer_MedNeXt",
+      "fold": 0,
+      "checkpoint": "checkpoint_best.pth",
+      "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+      "epoch": 987,
+      "size_bytes": 495000217,
+      "mtime": "2026-06-15T13:16:10",
+      "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+      "final_epoch": 1000,
+      "final_mtime": "2026-06-15T13:48:02",
+      "provenance_valid": true
+    },
+    "MedNeXt_MLA_MoE": {
+      "dataset": "Dataset003_Liver",
+      "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
+      "fold": 0,
+      "checkpoint": "checkpoint_best.pth",
+      "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+      "epoch": 998,
+      "size_bytes": 590661605,
+      "mtime": "2026-07-15T18:51:40",
+      "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+      "final_epoch": 1000,
+      "final_mtime": "2026-07-15T18:51:41",
+      "provenance_valid": true
+    }
+  },
+  "window_hu": [
+    -200.0,
+    250.0
+  ],
+  "rows": [
+    {
+      "panel": "A",
+      "case_id": "ircadb_016",
+      "slice_z": 120,
+      "gt_tumor_voxels": 0,
+      "baseline_tumor_voxels": 1651,
+      "main_tumor_voxels": 0,
+      "baseline_slice_dice": 0.0,
+      "main_slice_dice": 1.0,
+      "main_tp_voxels": 0,
+      "main_fp_voxels": 0,
+      "main_fn_voxels": 0,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_016_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_016.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_016.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_016.nii.gz",
+      "crop_y": [
+        100,
+        389
+      ],
+      "crop_x": [
+        52,
+        340
+      ]
+    },
+    {
+      "panel": "B",
+      "case_id": "ircadb_014",
+      "slice_z": 45,
+      "gt_tumor_voxels": 0,
+      "baseline_tumor_voxels": 200,
+      "main_tumor_voxels": 673,
+      "baseline_slice_dice": 0.0,
+      "main_slice_dice": 0.0,
+      "main_tp_voxels": 0,
+      "main_fp_voxels": 673,
+      "main_fn_voxels": 0,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_014_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_014.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_014.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_014.nii.gz",
+      "crop_y": [
+        150,
+        354
+      ],
+      "crop_x": [
+        56,
+        339
+      ]
+    },
+    {
+      "panel": "C",
+      "case_id": "ircadb_015",
+      "slice_z": 102,
+      "gt_tumor_voxels": 113,
+      "baseline_tumor_voxels": 0,
+      "main_tumor_voxels": 0,
+      "baseline_slice_dice": 0.0,
+      "main_slice_dice": 0.0,
+      "main_tp_voxels": 0,
+      "main_fp_voxels": 0,
+      "main_fn_voxels": 113,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_015.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz",
+      "crop_y": [
+        104,
+        280
+      ],
+      "crop_x": [
+        85,
+        352
+      ]
+    },
+    {
+      "panel": "D1",
+      "case_id": "ircadb_015",
+      "slice_z": 103,
+      "gt_tumor_voxels": 193,
+      "baseline_tumor_voxels": 104,
+      "main_tumor_voxels": 100,
+      "baseline_slice_dice": 0.7003367003367004,
+      "main_slice_dice": 0.6825938566552902,
+      "main_tp_voxels": 100,
+      "main_fp_voxels": 0,
+      "main_fn_voxels": 93,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_015.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz",
+      "crop_y": [
+        104,
+        280
+      ],
+      "crop_x": [
+        85,
+        352
+      ]
+    },
+    {
+      "panel": "D2",
+      "case_id": "ircadb_015",
+      "slice_z": 104,
+      "gt_tumor_voxels": 218,
+      "baseline_tumor_voxels": 183,
+      "main_tumor_voxels": 187,
+      "baseline_slice_dice": 0.8977556109725686,
+      "main_slice_dice": 0.9037037037037037,
+      "main_tp_voxels": 183,
+      "main_fp_voxels": 4,
+      "main_fn_voxels": 35,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_015.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz",
+      "crop_y": [
+        104,
+        280
+      ],
+      "crop_x": [
+        85,
+        352
+      ]
+    },
+    {
+      "panel": "D3",
+      "case_id": "ircadb_015",
+      "slice_z": 106,
+      "gt_tumor_voxels": 402,
+      "baseline_tumor_voxels": 254,
+      "main_tumor_voxels": 262,
+      "baseline_slice_dice": 0.774390243902439,
+      "main_slice_dice": 0.7891566265060241,
+      "main_tp_voxels": 262,
+      "main_fp_voxels": 0,
+      "main_fn_voxels": 140,
+      "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+      "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+      "baseline_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/ircadb_015.nii.gz",
+      "main_prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz",
+      "crop_y": [
+        104,
+        280
+      ],
+      "crop_x": [
+        85,
+        352
+      ]
+    }
+  ],
+  "interpretation_boundary": "Slice-level panels illustrate spatial error patterns and do not replace case-level paired statistics."
+}

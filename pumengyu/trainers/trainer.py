@@ -15,12 +15,14 @@ from pumengyu.mixins import (
     NoMirrorMixin,
     Stage2FPSupMixin,
     HCCMixTrainingMixin,
+    MSDHCCReferencedTrainPretrainMixin,
 )
 from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
 from pumengyu.architectures.mednext import (
     build_mednext_large,
     build_mednext_large_mla,
+    build_mednext_large_mla_plain_conv_decoder,
     build_mednext_large_mha,
     build_mednext_large_mla_hcc_adapter,
 )
@@ -1503,6 +1505,7 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
     MLA_COMPRESSION_RATIO: int = 4
     MLA_MLP_RATIO:         int = 4
     MLA_USE_MOE:           bool = False
+    MEDNEXT_USE_GRN:       bool = False
 
     @staticmethod
     def _deep_supervision_scales_from_configuration(configuration_manager: ConfigurationManager):
@@ -1531,6 +1534,7 @@ class nnUNetTrainer_MedNeXt_MLA(AutoInternalTestMixin, AutoReportMixin, nnUNetTr
             mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
             mla_mlp_ratio=cls.MLA_MLP_RATIO,
             mla_use_moe=cls.MLA_USE_MOE,
+            enable_mednext_grn=cls.MEDNEXT_USE_GRN,
             deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
         )
 
@@ -1549,6 +1553,209 @@ class nnUNetTrainer_MedNeXt_MLA_MoE(nnUNetTrainer_MedNeXt_MLA):
     """MedNeXt-L + MLA Attention + MoE-FFN；承接全部历史误命名 checkpoint。"""
 
     MLA_USE_MOE: bool = True
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_PlainConvDecoder(
+    nnUNetTrainer_MedNeXt_MLA_MoE,
+):
+    """Decoder-complexity ablation with a shallow ordinary-convolution decoder.
+
+    The MedNeXt encoder and MedNeXt + MLA/MoE bottleneck remain identical to
+    the paper control. Each decoder scale is reduced to ConvTranspose3d,
+    additive encoder skip fusion and one 3x3x3 Conv-GN-GELU stage. Patch,
+    optimizer, schedule, loss and deep supervision remain unchanged.
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mla_plain_conv_decoder(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mla_num_heads=cls.MLA_NUM_HEADS,
+            mla_num_blocks=cls.MLA_NUM_BLOCKS,
+            mla_compression_ratio=cls.MLA_COMPRESSION_RATIO,
+            mla_mlp_ratio=cls.MLA_MLP_RATIO,
+            mla_use_moe=cls.MLA_USE_MOE,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(
+                configuration_manager
+            ),
+        )
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_FixedPatch96(
+    nnUNetTrainer_MedNeXt_MLA_MoE,
+):
+    """固定 96³ patch 训练 1000 epochs 的 patch-size 对照实验。
+
+    只把原始 3d_fullres 计划中的训练 patch 从 128³ 改为 96³；网络、
+    优化器、PolyLR、batch size、每个 epoch 的迭代数和数据增强均沿用
+    论文主模型。验证仍使用完整图像滑窗推理，不受训练 patch 限制。
+    """
+
+    PATCH_SIZE = (96, 96, 96)
+    EXPECTED_PLANNED_PATCH_SIZE = (128, 128, 128)
+
+    def __init__(self, plans, configuration, fold, dataset_json, device=torch.device("cuda")):
+        super().__init__(plans, configuration, fold, dataset_json, device)
+        planned_patch = tuple(int(i) for i in self.configuration_manager.patch_size)
+        if planned_patch != self.EXPECTED_PLANNED_PATCH_SIZE:
+            raise RuntimeError(
+                "FixedPatch96 requires the unchanged 3d_fullres plan patch "
+                f"{self.EXPECTED_PLANNED_PATCH_SIZE}, but received {planned_patch}."
+            )
+        self.num_epochs = 1000
+
+    def on_train_start(self):
+        self.configuration_manager.configuration["patch_size"] = list(self.PATCH_SIZE)
+        self.print_to_log_file(
+            f"[FixedPatch96] active training patch={self.PATCH_SIZE}; "
+            f"epochs={self.num_epochs}",
+            also_print_to_console=True,
+        )
+        super().on_train_start()
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_ProgressivePatch96to128(
+    nnUNetTrainer_MedNeXt_MLA_MoE,
+):
+    """MedNeXt_MLA_MoE 渐进式 patch 消融：96³×500 → 128³×500。
+
+    只改变训练 patch 课程；网络、优化器、PolyLR、batch size、每个 epoch
+    的迭代数和数据增强配置均沿用论文主模型。epoch 500 切换时仅重建
+    dataloader，不重建模型或优化器，因此学习率调度和动量状态连续。
+    """
+
+    STAGE1_PATCH_SIZE = (96, 96, 96)
+    STAGE2_PATCH_SIZE = (128, 128, 128)
+    STAGE_SWITCH_EPOCH = 500
+
+    def __init__(self, plans, configuration, fold, dataset_json, device=torch.device("cuda")):
+        super().__init__(plans, configuration, fold, dataset_json, device)
+        planned_patch = tuple(int(i) for i in self.configuration_manager.patch_size)
+        if planned_patch != self.STAGE2_PATCH_SIZE:
+            raise RuntimeError(
+                "ProgressivePatch96to128 requires the unchanged 3d_fullres plan "
+                f"patch {self.STAGE2_PATCH_SIZE}, but received {planned_patch}."
+            )
+        self.num_epochs = 1000
+        self._active_progressive_patch = None
+
+    def _patch_for_current_epoch(self):
+        return (
+            self.STAGE1_PATCH_SIZE
+            if self.current_epoch < self.STAGE_SWITCH_EPOCH
+            else self.STAGE2_PATCH_SIZE
+        )
+
+    def _activate_progressive_patch(self, patch_size):
+        patch_size = tuple(int(i) for i in patch_size)
+        self.configuration_manager.configuration["patch_size"] = list(patch_size)
+        self._active_progressive_patch = patch_size
+        self.print_to_log_file(
+            f"[ProgressivePatch] epoch={self.current_epoch}: active patch={patch_size}",
+            also_print_to_console=True,
+        )
+
+    @staticmethod
+    def _finish_augmenter(augmenter):
+        if augmenter is not None and hasattr(augmenter, "_finish"):
+            augmenter._finish()
+
+    def _rebuild_dataloaders_for_stage2(self):
+        self._finish_augmenter(self.dataloader_train)
+        self._finish_augmenter(self.dataloader_val)
+        self._activate_progressive_patch(self.STAGE2_PATCH_SIZE)
+        self.dataloader_train, self.dataloader_val = self.get_dataloaders()
+        self.print_to_log_file(
+            "[ProgressivePatch] stage 2 dataloaders rebuilt; model, optimizer "
+            "and PolyLR state were preserved.",
+            also_print_to_console=True,
+        )
+
+    def on_train_start(self):
+        # --c may load a checkpoint before dataloaders exist. Select the phase
+        # from current_epoch so both fresh starts and resumed runs are correct.
+        self._activate_progressive_patch(self._patch_for_current_epoch())
+        super().on_train_start()
+
+    def on_epoch_end(self):
+        ending_epoch = self.current_epoch
+        super().on_epoch_end()
+
+        if ending_epoch == self.STAGE_SWITCH_EPOCH - 1:
+            # save_checkpoint assumes it is called before current_epoch is
+            # incremented. Temporarily restore 499 so the stored resume epoch
+            # is exactly 500.
+            self.current_epoch -= 1
+            self.save_checkpoint(f"{self.output_folder}/checkpoint_stage1_final.pth")
+            self.current_epoch += 1
+
+            # Stage-2 best selection must not inherit the small-patch EMA.
+            # Also persist this reset in checkpoint_latest so an interruption
+            # immediately after the switch resumes with the same semantics.
+            self._best_ema = None
+            self.current_epoch -= 1
+            self.save_checkpoint(f"{self.output_folder}/checkpoint_latest.pth")
+            self.current_epoch += 1
+
+            self._rebuild_dataloaders_for_stage2()
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_GRN(nnUNetTrainer_MedNeXt_MLA_MoE):
+    """MedNeXt-v2-inspired GRN-only ablation of MedNeXt_MLA_MoE.
+
+    Only 3D GRN is enabled after the expanded GELU activations in all standard,
+    downsampling and upsampling MedNeXt blocks. MLA, MoE, width/depth, 128^3
+    patch, optimizer and 1000-epoch schedule remain unchanged. This is not a
+    claim of reproducing the full MedNeXt-v2 pretraining/scaling recipe.
+    """
+
+    MEDNEXT_USE_GRN: bool = True
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_MSDHCCPretrain(
+    MSDHCCReferencedTrainPretrainMixin,
+    nnUNetTrainer_MedNeXt_MLA_MoE,
+):
+    """Stage 1: paper MedNeXt_MLA_MoE trained on MSD-train + HCC-train.
+
+    Run with Dataset003 so the network and preprocessing plans match the paper
+    control and the subsequent MSD-only fine-tuning stage. The mixin enforces
+    exactly 92 MSD training cases plus 70 HCC training cases and retains the 13
+    MSD validation cases for checkpoint selection.
+    """
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_GRN_MSDHCCPretrain(
+    MSDHCCReferencedTrainPretrainMixin,
+    nnUNetTrainer_MedNeXt_MLA_MoE_GRN,
+):
+    """All-block GRN ablation using the same 92-MSD + 70-HCC recipe."""
+
+
+class nnUNetTrainer_MedNeXt_MLA_MoE_MSDHCCPretrain_MSDFinetune(
+    nnUNetTrainer_MedNeXt_MLA_MoE,
+):
+    """Stage 2: MSD-only fine-tuning initialized from the Stage-1 best weights.
+
+    This class intentionally does not auto-discover a checkpoint. Supply the
+    exact Stage-1 ``checkpoint_best.pth`` through ``-pretrained_weights`` so the
+    command and checkpoint provenance remain explicit. The optimizer and PolyLR
+    schedule restart with a 10x lower learning rate for 300 epochs.
+    """
+
+    def __init__(self, plans, configuration, fold, dataset_json, device=torch.device("cuda")):
+        super().__init__(plans, configuration, fold, dataset_json, device)
+        self.initial_lr = 1e-3
+        self.num_epochs = 300
 
 
 class nnUNetTrainer_MedNeXt_MLA_MLP(nnUNetTrainer_MedNeXt_MLA):

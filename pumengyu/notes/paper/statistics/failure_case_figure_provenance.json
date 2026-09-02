@@ -1,0 +1,206 @@
+{
+  "generated_on": "2026-07-30T17:33:10",
+  "style_specification": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/figure_factory/论文绘图规范与工具方法.md",
+  "external_ircadb": {
+    "dataset": "3D-IRCADb",
+    "model_source": "Dataset003_Liver source-only",
+    "checkpoint": {
+      "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+      "checkpoint": "checkpoint_best.pth",
+      "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
+      "epoch": 998,
+      "mtime": "2026-07-15T18:51:40",
+      "size_bytes": 590661605,
+      "sha256": "456f73f5ebe22926512b7c8ecd1ffdf8ac0d54a0a0073611fdeecf7ae5565f24"
+    },
+    "artifacts": {
+      "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions",
+      "prediction_count": 20,
+      "summary_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/summary.json",
+      "summary_exists": true,
+      "report_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt",
+      "report_exists": true,
+      "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/test_viz",
+      "visualization_png_count": 668
+    },
+    "figures": {
+      "ircadb_014_z45_mednext_mla_fp": [
+        {
+          "case_id": "ircadb_014",
+          "slice_z": 45,
+          "gt": 0,
+          "tp": 0,
+          "fp": 673,
+          "fn": 0,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_014_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_014.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_014.nii.gz"
+        }
+      ],
+      "ircadb_015_z102_mednext_mla_fn": [
+        {
+          "case_id": "ircadb_015",
+          "slice_z": 102,
+          "gt": 113,
+          "tp": 0,
+          "fp": 0,
+          "fn": 113,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz"
+        }
+      ],
+      "ircadb_015_adjacent_slice_recovery": [
+        {
+          "case_id": "ircadb_015",
+          "slice_z": 103,
+          "gt": 193,
+          "tp": 100,
+          "fp": 0,
+          "fn": 93,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz"
+        },
+        {
+          "case_id": "ircadb_015",
+          "slice_z": 104,
+          "gt": 218,
+          "tp": 183,
+          "fp": 4,
+          "fn": 35,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz"
+        },
+        {
+          "case_id": "ircadb_015",
+          "slice_z": 106,
+          "gt": 402,
+          "tp": 262,
+          "fp": 0,
+          "fn": 140,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_015_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_015.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_015.nii.gz"
+        }
+      ],
+      "ircadb_008_z96_mednext_mla_unexplained_fp": [
+        {
+          "case_id": "ircadb_008",
+          "slice_z": 96,
+          "gt": 0,
+          "tp": 0,
+          "fp": 848,
+          "fn": 0,
+          "image_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/images/ircadb_008_0000.nii.gz",
+          "label_path": "/home/PuMengYu/nnUNet_workspace/external_val/ircadb_full/labels/ircadb_008.nii.gz",
+          "prediction_path": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/ircadb_008.nii.gz"
+        }
+      ]
+    }
+  },
+  "historical_internal": {
+    "dataset": "Dataset003_Liver full-split visualization",
+    "checkpoint": {
+      "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+      "checkpoint": "checkpoint_best.pth",
+      "trainer": "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4",
+      "epoch": 894,
+      "mtime": "2026-06-12T18:08:57",
+      "size_bytes": 287489234,
+      "sha256": "eb6051a79bf993f0fa75cf25a46988d1392a98b911244113abbb4efbaac83d20"
+    },
+    "artifacts": {
+      "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/fold_0/test_prediction",
+      "prediction_count": 0,
+      "summary_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
+      "summary_exists": true,
+      "report_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
+      "report_exists": true,
+      "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4__nnUNetPlans__3d_fullres/fold_0/test_viz",
+      "visualization_png_count": 2617
+    },
+    "figures": {
+      "lits_liver_41_false_positive": [
+        {
+          "case_id": "liver_41",
+          "slice_z": 45,
+          "gt": 0,
+          "tp": 0,
+          "fp": 1090,
+          "fn": 0,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_41_z45_full.png",
+          "source_sha256": "c158845b729a610cd59b27428c05ba385ae3f4016281395fae325d4ac781f701"
+        }
+      ],
+      "lits_liver_30_cystic_false_positive": [
+        {
+          "case_id": "liver_30",
+          "slice_z": 152,
+          "gt": 0,
+          "tp": 0,
+          "fp": 92,
+          "fn": 0,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_30_z152_full.png",
+          "source_sha256": "f415b65c910057ea175335f2d6a26cdacaec97c46cd9f301f99557202ba50b44"
+        }
+      ],
+      "lits_liver_33_adjacent_slice_recovery": [
+        {
+          "case_id": "liver_33",
+          "slice_z": 49,
+          "gt": 755,
+          "tp": 2,
+          "fp": 0,
+          "fn": 753,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_33_z49_full.png",
+          "source_sha256": "c0fd9d64d343b571550a5a9127267efbd19a39d349f4f92bb9398c30375bfec1"
+        },
+        {
+          "case_id": "liver_33",
+          "slice_z": 50,
+          "gt": 1392,
+          "tp": 727,
+          "fp": 0,
+          "fn": 665,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_33_z50_full.png",
+          "source_sha256": "cf069ab9456ac5693230d2dbbca1ce5c853c02e36a5bbbe0e61f44d855c46dee"
+        }
+      ],
+      "lits_liver_13_context_spillover": [
+        {
+          "case_id": "liver_13",
+          "slice_z": 327,
+          "gt": 0,
+          "tp": 0,
+          "fp": 58,
+          "fn": 0,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_13_z327_full.png",
+          "source_sha256": "01cb8212dd20420bf965a6d1de38510e12af2c263ef448241e5ee78ea61075c5"
+        },
+        {
+          "case_id": "liver_13",
+          "slice_z": 328,
+          "gt": 136,
+          "tp": 119,
+          "fp": 64,
+          "fn": 17,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_13_z328_full.png",
+          "source_sha256": "a08291a0aa15c02770ed9319cded7ef49c6d9c8d94784429ff80aabaf752b59c"
+        },
+        {
+          "case_id": "liver_13",
+          "slice_z": 334,
+          "gt": 641,
+          "tp": 593,
+          "fp": 63,
+          "fn": 48,
+          "source_raster": "/home/PuMengYu/nnUNet/pumengyu/notes/paper/assets/liver_13_z334_full.png",
+          "source_sha256": "c67853beae0ffcd06315ebe5ad42ab6e45e76046771fcdca01ecc5ca8dd70326"
+        }
+      ]
+    },
+    "provenance_boundary": "The selected historical train-case NIfTI predictions were deleted after visualization. Figures 10-13 are recomposed from preserved source PNGs and are not attributed to the current MedNeXt_MLA_MoE model."
+  }
+}
