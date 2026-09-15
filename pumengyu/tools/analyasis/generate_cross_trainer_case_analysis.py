@@ -1,4 +1,4 @@
-"""Generate cross-trainer hard-case statistics for MSD, IRCADb, and HCC.
+"""Generate cross-trainer hard-case statistics for LiTS, IRCADb, and HCC.
 
 This script is read-only with respect to experiment artifacts. It reads existing
 ``summary.json`` files (falling back to the human-readable report when a legacy
@@ -433,7 +433,7 @@ def _priority_case_line(domain: DomainData, case: str) -> str:
 
 def _priority_summary(domains: list[DomainData]) -> list[str]:
     by_name = {domain.name: domain for domain in domains}
-    msd = by_name["MSD"]
+    lits = by_name["LiTS"]
     ircadb = by_name["IRCADb"]
     hcc = by_name["HCC"]
     _, hcc_rows = _positive_table(hcc)
@@ -443,10 +443,10 @@ def _priority_summary(domains: list[DomainData]) -> list[str]:
     lines = [
         "## 重点病例结论列表",
         "",
-        "### MSD internal",
+        "### LiTS internal",
         "",
     ]
-    lines += [_priority_case_line(msd, case) for case in ("liver_127", "liver_41", "liver_91", "liver_89")]
+    lines += [_priority_case_line(lits, case) for case in ("liver_127", "liver_41", "liver_91", "liver_89")]
     lines += [
         "",
         "### 3D-IRCADb",
@@ -477,9 +477,9 @@ def _priority_summary(domains: list[DomainData]) -> list[str]:
 def build_markdown(domains: list[DomainData]) -> str:
     method_counts = ", ".join(f"{domain.name}={len(domain.methods)}" for domain in domains)
     lines = [
-        "# MSD、IRCADb 与 HCC 跨 Trainer 失败病例分析",
+        "# LiTS、IRCADb 与 HCC 跨 Trainer 失败病例分析",
         "",
-        "> 更新：2026-07-22  ",
+        "> 更新：2026-09-03  ",
         "> 文档定位：从“某个模型为什么失败”转为“哪些病例对多种架构与训练策略都困难”。  ",
         f"> 公平 source-only 方法覆盖：{method_counts}。",
         "",
@@ -487,11 +487,11 @@ def build_markdown(domains: list[DomainData]) -> str:
         "",
         "## 1. 统计口径",
         "",
-        "1. MSD 指 `Dataset003_Liver` 固定 26 例 internal test；IRCADb 为 20 例 source-only；HCC 为 `HCCReferencedCT v2` 固定 21 例 source-only held-out test。",
+        "1. LiTS 指通过 MSD Task03 Liver 获取的 131 例公开标注队列，其中 `Dataset003_Liver` 固定 26 例 internal test；IRCADb 为 20 例 source-only；HCC 为 `HCCReferencedCT v2` 固定 21 例 source-only held-out test。",
         "2. 有肿瘤病例的“严重失败”定义为 `Tumor Dice < 0.3`。这与现有三域报告分级一致。",
         "3. 无肿瘤病例不计算 Tumor Dice；只要 `pred_tumor > 0` 就记为 case-level 误报。",
         "4. “全部 Trainer 失败”指当前该数据域所有纳入方法都达到失败条件，不是指 Dice 必须等于 0。",
-        "5. 仅纳入公平表中的 30 种 Dataset003 source-only 方法；各数据域按实际已有报告的方法计数。HCC Adapter、HCC-only 和 MSD/HCC mix 改变了训练数据或路由，不进入共识失败计数。",
+        "5. 仅纳入公平表中的 30 种 Dataset003 source-only 方法；各数据域按实际已有报告的方法计数。HCC Adapter、HCC-only 和 LiTS/HCC mix 改变了训练数据或路由，不进入共识失败计数。",
         "",
         "## 2. 如何解读",
         "",
@@ -533,7 +533,7 @@ def main() -> None:
     args = parser.parse_args()
 
     domains = [
-        _load_domain("MSD", "MSD internal（Dataset003_Liver）", _internal_paths()),
+        _load_domain("LiTS", "LiTS internal（Dataset003_Liver）", _internal_paths()),
         _load_domain("IRCADb", "3D-IRCADb source-only", _external_paths("results_v2/IRCADb/source_only")),
         _load_domain(
             "HCC",

@@ -2,7 +2,7 @@
 DeepPlainResGN：深层 Plain Conv U-Net + 残差 + GroupNorm
 
 消融实验目标：
-    证明 MedNeXt 的性能提升来自"更深 + 残差 + GroupNorm"，
+    检验 MedNeXt 的性能提升是否来自"更深 + 残差 + GroupNorm"，
     而非 depthwise separable conv（倒置瓶颈结构）。
 
 架构设计（对齐 MedNeXt-L）：
@@ -15,9 +15,9 @@ DeepPlainResGN：深层 Plain Conv U-Net + 残差 + GroupNorm
     - 参数量：~61.1M，与 MedNeXt-L（61.8M）对齐
 
 对照实验链：
-    nnUNet_Baseline（6 stages, InstanceNorm, 无残差, 无深度）     → 0.7941
-    ↓ +残差 +GroupNorm +深度（9位置，本架构）                    → ?
-    MedNeXt-L（9位置, GroupNorm, 残差, DW sep conv）             → 0.8402
+    nnUNet_Baseline（6 stages, InstanceNorm, 无残差, 无深度）     → 0.8414
+    ↓ +残差 +GroupNorm +深度（9位置，本架构）                    → 0.8248
+    MedNeXt-L（9位置, GroupNorm, 残差, DW sep conv）             → 0.8561
 
 若本架构接近 MedNeXt，说明 DW sep conv 不是关键因素。
 """

@@ -1,10 +1,11 @@
 # MedNeXt 系列消融实验结果汇总
 
-> 审计日期：2026-07-22  
+> 审计日期：2026-09-03
 > 内部数据：Dataset003_Liver 固定 26 例 test  
 > 外部数据：3D-IRCADb 20 例；HCCReferencedCT v2 固定 21 例 held-out test  
 > 默认 checkpoint：`checkpoint_best.pth`
 > Overall 口径：按 [PMY-LT-v1](指标统计口径.md) 在各数据域内计算 `(Liver Dice(all cases) + Tumor Dice(GT-positive cases)) / 2`；IRCADb Overall 与 HCC Overall 不互相平均。
+> Baseline 参照已替换为可信重训结果（LiTS/IRCADb/HCC Overall 0.8414/0.8429/0.6013）；本文件的 MedNeXt 家族原始分数不因该替换改变，但涉及全方法排名时使用更新后的 Baseline 行。
 
 ## 1. MHA/MLA × MLP/MoE 三域 2×2 指标矩阵已闭环
 

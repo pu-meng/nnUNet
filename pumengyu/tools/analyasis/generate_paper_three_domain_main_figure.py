@@ -57,7 +57,7 @@ DISPLAY_NAMES = {
 MAIN_MODEL = "MedNeXt_MLA_MoE"
 DATASETS = ("Internal", "IRCADb", "HCC")
 DATASET_DISPLAY_NAMES = {
-    "Internal": "MSD",
+    "Internal": "LiTS",
     "IRCADb": "IRCADb",
     "HCC": "HCC",
 }

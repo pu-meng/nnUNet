@@ -40,7 +40,8 @@ EXT_VAL_ROOT = WORKSPACE / "external_val" / "hcc_referenced_ct_test"
 IMAGE_DIR = EXT_VAL_ROOT / "images"
 LABEL_DIR = EXT_VAL_ROOT / "labels"
 INFO_FILE = EXT_VAL_ROOT / "case_info.json"
-EXT_RESULT_ROOT = WORKSPACE / "results_v2" / "ExternalVal_HCCReferencedCT"
+MODEL_RESULTS_ROOT = Path(os.environ.get("nnUNet_results", WORKSPACE / "results_v2"))
+EXT_RESULT_ROOT = MODEL_RESULTS_ROOT / "ExternalVal_HCCReferencedCT"
 
 
 def _load_ircad_report_module():
@@ -190,7 +191,7 @@ def run(
     report_module.IMAGE_DIR = IMAGE_DIR
     report_module.INFO_FILE = INFO_FILE
     report_module.EXT_RESULT_ROOT = EXT_RESULT_ROOT
-    report_module.NNUNET_RESULTS = WORKSPACE / "results_v2"
+    report_module.NNUNET_RESULTS = MODEL_RESULTS_ROOT
 
     report_module.run(
         method=method,
@@ -209,7 +210,8 @@ def run(
 
 
 def main() -> None:
-    global SPLIT_INFO, EXT_VAL_ROOT, IMAGE_DIR, LABEL_DIR, INFO_FILE, EXT_RESULT_ROOT
+    global SPLIT_INFO, EXT_VAL_ROOT, IMAGE_DIR, LABEL_DIR, INFO_FILE
+    global MODEL_RESULTS_ROOT, EXT_RESULT_ROOT
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--method", required=True, help="输出方法名，如 MedNeXt_MLA")
@@ -225,7 +227,10 @@ def main() -> None:
                         help="即使预测文件齐全也强制重新推理；默认复用并只补报告/可视化")
     parser.add_argument("--split_info", default=str(SPLIT_INFO), help="HCC split_info json，默认兼容文件名；当前内容为 stratified v2")
     parser.add_argument("--ext_val_root", default=str(EXT_VAL_ROOT), help="HCC test images/labels symlink root")
-    parser.add_argument("--result_root", default=str(EXT_RESULT_ROOT), help="HCC external validation output root")
+    parser.add_argument("--model_results_root", default=str(MODEL_RESULTS_ROOT),
+                        help="模型 checkpoint 所在的 nnUNet_results 根目录")
+    parser.add_argument("--result_root", default=None,
+                        help="HCC 外部验证输出根目录；默认 <model_results_root>/ExternalVal_HCCReferencedCT")
     args = parser.parse_args()
 
     if args.predict and not args.trainer:
@@ -236,9 +241,13 @@ def main() -> None:
     IMAGE_DIR = EXT_VAL_ROOT / "images"
     LABEL_DIR = EXT_VAL_ROOT / "labels"
     INFO_FILE = EXT_VAL_ROOT / "case_info.json"
-    EXT_RESULT_ROOT = Path(args.result_root)
+    MODEL_RESULTS_ROOT = Path(args.model_results_root)
+    EXT_RESULT_ROOT = (
+        Path(args.result_root) if args.result_root
+        else MODEL_RESULTS_ROOT / "ExternalVal_HCCReferencedCT"
+    )
 
-    os.environ.setdefault("nnUNet_results", str(WORKSPACE / "results_v2"))
+    os.environ["nnUNet_results"] = str(MODEL_RESULTS_ROOT)
     run(
         method=args.method,
         no_vis=args.no_vis,

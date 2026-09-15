@@ -24,10 +24,12 @@
 
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import nibabel as nib
@@ -41,9 +43,12 @@ LABEL_DIR     = EXT_VAL_ROOT / "labels"
 IMAGE_DIR     = EXT_VAL_ROOT / "images"
 INFO_FILE     = EXT_VAL_ROOT / "case_info.json"
 
-# 外部验证结果统一写入 results_v2/IRCADb/source_only/，与内部实验并列
-EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
-NNUNET_RESULTS = Path("/home/PuMengYu/nnUNet_workspace/results_v2")
+# 默认跟随当前进程实际使用的 nnUNet_results。命令行仍可显式覆盖模型根目录
+# 和外部结果目录，便于候选重训结果在独立目录完成验收后再提升为正式结果。
+NNUNET_RESULTS = Path(
+    os.environ.get("nnUNet_results", "/home/PuMengYu/nnUNet_workspace/results_v2")
+)
+EXT_RESULT_ROOT = NNUNET_RESULTS / "IRCADb" / "source_only"
 
 TUMOR_CLS = 2   # label 1=liver, 2=tumor（同 Dataset003）
 LIVER_CLS = 1
@@ -155,9 +160,102 @@ def run_predict(method: str, trainer: str, fold: int, gpu: int, checkpoint: str 
         cmd += ["-chk", checkpoint]
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    env["nnUNet_results"] = str(NNUNET_RESULTS)
     print(f"[推理] 执行: CUDA_VISIBLE_DEVICES={gpu} {' '.join(cmd)}")
     subprocess.run(cmd, env=env, check=True)
     print("[推理] 完成")
+
+
+def _checkpoint_identity(dataset: str, trainer: str, fold: int, checkpoint: str) -> dict:
+    dataset_name = _resolve_dataset_name(dataset)
+    checkpoint_path = (
+        NNUNET_RESULTS / dataset_name
+        / f"{trainer}__nnUNetPlans__3d_fullres" / f"fold_{fold}" / checkpoint
+    )
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"模型 checkpoint 不存在: {checkpoint_path}")
+
+    digest = hashlib.sha256()
+    with checkpoint_path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+
+    import torch
+
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    return {
+        "model_results_root": str(NNUNET_RESULTS.resolve()),
+        "dataset": dataset_name,
+        "trainer": trainer,
+        "configuration": "3d_fullres",
+        "fold": int(fold),
+        "checkpoint": checkpoint,
+        "checkpoint_path": str(checkpoint_path.resolve()),
+        "checkpoint_size_bytes": checkpoint_path.stat().st_size,
+        "checkpoint_mtime": datetime.fromtimestamp(
+            checkpoint_path.stat().st_mtime
+        ).astimezone().isoformat(timespec="seconds"),
+        "checkpoint_sha256": digest.hexdigest(),
+        "checkpoint_epoch": int(payload.get("current_epoch", -1)),
+    }
+
+
+def _write_evaluation_provenance(result_dir: Path, identity: dict) -> Path:
+    path = result_dir / "evaluation_provenance.json"
+    data = {
+        "schema_version": 1,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        **identity,
+    }
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _require_matching_provenance(result_dir: Path, identity: dict) -> None:
+    path = result_dir / "evaluation_provenance.json"
+    if not path.is_file():
+        raise RuntimeError(
+            f"已有预测缺少 checkpoint 来源记录: {path}。"
+            "拒绝把历史预测复用于当前模型；如确认需要重算，请显式使用 --force_predict。"
+        )
+    recorded = json.loads(path.read_text(encoding="utf-8"))
+    keys = (
+        "model_results_root", "dataset", "trainer", "configuration", "fold",
+        "checkpoint", "checkpoint_path", "checkpoint_size_bytes", "checkpoint_sha256",
+        "checkpoint_epoch",
+    )
+    mismatches = {
+        key: {"recorded": recorded.get(key), "requested": identity.get(key)}
+        for key in keys if recorded.get(key) != identity.get(key)
+    }
+    if mismatches:
+        raise RuntimeError(
+            "已有预测与当前 checkpoint 来源不一致，拒绝复用。"
+            f" mismatches={mismatches}；如需重算，请显式使用 --force_predict。"
+        )
+
+
+def _append_report_provenance(report_path: Path, identity: dict) -> None:
+    if not report_path.is_file():
+        raise FileNotFoundError(f"报告不存在，无法写入来源信息: {report_path}")
+    text = report_path.read_text(encoding="utf-8").rstrip()
+    marker = "[Model Provenance]"
+    if marker in text:
+        text = text.split(marker, 1)[0].rstrip()
+    lines = [
+        "",
+        marker,
+        f"dataset: {identity['dataset']}",
+        f"trainer: {identity['trainer']}",
+        f"configuration: {identity['configuration']}",
+        f"fold: {identity['fold']}",
+        f"checkpoint: {identity['checkpoint']}",
+        f"checkpoint_epoch: {identity['checkpoint_epoch']}",
+        f"checkpoint_sha256: {identity['checkpoint_sha256']}",
+        f"checkpoint_path: {identity['checkpoint_path']}",
+        f"model_results_root: {identity['model_results_root']}",
+    ]
+    report_path.write_text(text + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ── 评估（单次循环，同时做 metrics + CC 分析）────────────────────────────
@@ -430,24 +528,44 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
     result_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. 可选：先推理
+    checkpoint_identity = None
     if predict:
         if not trainer:
             raise ValueError("--predict 需要同时指定 --trainer")
+        dataset_name = _resolve_dataset_name(dataset)
         if _dataset_id_arg(dataset) == "3" and checkpoint == "checkpoint_best.pth":
             # Source-only external evaluations must inherit the same checkpoint
             # provenance gate as the internal best-only report.
             from pumengyu.tools.run_internal_test_best_report import (
                 validate_best_checkpoint_provenance,
             )
-            validate_best_checkpoint_provenance(trainer)
-        expected_cases = list(json.loads(INFO_FILE.read_text(encoding="utf-8")))
-        predictions_complete = all(
-            (pred_dir / f"{case}.nii.gz").is_file() for case in expected_cases
-        )
+            validate_best_checkpoint_provenance(
+                trainer,
+                results_root=NNUNET_RESULTS,
+                dataset=dataset_name,
+                fold=fold,
+            )
+        checkpoint_identity = _checkpoint_identity(dataset, trainer, fold, checkpoint)
+        expected_cases = set(json.loads(INFO_FILE.read_text(encoding="utf-8")))
+        predicted_cases = {
+            path.name.removesuffix(".nii.gz") for path in pred_dir.glob("*.nii.gz")
+        } if pred_dir.is_dir() else set()
+        predictions_complete = predicted_cases == expected_cases
         if predictions_complete and not force_predict:
+            _require_matching_provenance(result_dir, checkpoint_identity)
             print(f"[reuse] {method}: reuse {len(expected_cases)} existing predictions")
         else:
             run_predict(method, trainer, fold, gpu, checkpoint, dataset)
+            predicted_cases = {
+                path.name.removesuffix(".nii.gz") for path in pred_dir.glob("*.nii.gz")
+            }
+            if predicted_cases != expected_cases:
+                missing = sorted(expected_cases - predicted_cases)
+                stale = sorted(predicted_cases - expected_cases)
+                raise RuntimeError(
+                    f"推理病例清单不完整: missing={missing or '无'}, stale={stale or '无'}"
+                )
+            _write_evaluation_provenance(result_dir, checkpoint_identity)
 
     if not pred_dir.is_dir():
         raise FileNotFoundError(f"预测目录不存在: {pred_dir}")
@@ -480,6 +598,8 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
                                fp_cc_info, tp_cc_sizes)
     report_path = result_dir / "report_custom.txt"
     report_path.write_text(report_text, encoding="utf-8")
+    if checkpoint_identity is not None:
+        _append_report_provenance(report_path, checkpoint_identity)
 
     agg = aggregate_liver_tumor_metrics(has_tumor_cases, no_tumor_cases)
     false_pos_cases = agg["false_positive_cases"]
@@ -517,7 +637,7 @@ def run(method: str, no_vis: bool, predict: bool, trainer: str, fold: int, gpu: 
 # ── CLI ───────────────────────────────────────────────────────────────────
 
 def main():
-    global EXT_RESULT_ROOT
+    global EXT_RESULT_ROOT, NNUNET_RESULTS
     p = argparse.ArgumentParser()
     p.add_argument("--method",    required=True,
                    help="预测目录名，如 MoE_SizeOV4")
@@ -540,10 +660,16 @@ def main():
                    help="预测使用的数据集 id/name，默认 003；HCC/MSD 混合模型应使用 013")
     p.add_argument("--force_predict", action="store_true",
                    help="即使预测文件齐全也强制重新推理；默认复用并只补报告/可视化")
-    p.add_argument("--result_root", default=str(EXT_RESULT_ROOT),
-                   help="外部验证输出根目录，默认 results_v2/IRCADb/source_only")
+    p.add_argument("--model_results_root", default=str(NNUNET_RESULTS),
+                   help="模型 checkpoint 所在的 nnUNet_results 根目录")
+    p.add_argument("--result_root", default=None,
+                   help="外部验证输出根目录；默认 <model_results_root>/IRCADb/source_only")
     args = p.parse_args()
-    EXT_RESULT_ROOT = Path(args.result_root)
+    NNUNET_RESULTS = Path(args.model_results_root)
+    EXT_RESULT_ROOT = (
+        Path(args.result_root) if args.result_root
+        else NNUNET_RESULTS / "IRCADb" / "source_only"
+    )
     run(args.method, args.no_vis, args.predict, args.trainer, args.fold, args.gpu,
         args.min_voxel, args.checkpoint, args.dataset, args.force_predict)
 

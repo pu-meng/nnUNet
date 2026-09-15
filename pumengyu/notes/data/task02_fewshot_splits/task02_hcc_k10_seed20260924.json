@@ -1,0 +1,27 @@
+{
+  "split_id": "task02_hcc_k10_seed20260924",
+  "purpose": "Task 02 fixed single few-shot adaptation split",
+  "k": 10,
+  "sampling_seed": 20260924,
+  "training_seed": 20260920,
+  "sampling_algorithm": "numpy.random.default_rng(seed), without replacement within each bin; eligible IDs sorted ascending; bins processed tiny, small, medium, extreme",
+  "quota_by_bin": {"tiny": 3, "small": 4, "medium": 3, "extreme": 0},
+  "candidate_pool": {
+    "dataset": "Dataset013_HCCReferencedCT",
+    "partition": "70-case adaptation pool only",
+    "case_metadata": "pumengyu/notes/data/hcc_split_701020_stratified_v2_cases.csv",
+    "case_metadata_sha256": "17aa097e3c3c21a783b46abf643a246074094ed061d0d8a8ce00a2c5c06d65cc"
+  },
+  "cases": [
+    {"case_id": "HCC_006", "tumor_burden_bin": "tiny", "corrected_tumor_foreground_ratio": 0.009211, "review_extreme": false},
+    {"case_id": "HCC_050", "tumor_burden_bin": "tiny", "corrected_tumor_foreground_ratio": 0.017066, "review_extreme": false},
+    {"case_id": "HCC_104", "tumor_burden_bin": "tiny", "corrected_tumor_foreground_ratio": 0.014940, "review_extreme": false},
+    {"case_id": "HCC_038", "tumor_burden_bin": "small", "corrected_tumor_foreground_ratio": 0.086872, "review_extreme": false},
+    {"case_id": "HCC_043", "tumor_burden_bin": "small", "corrected_tumor_foreground_ratio": 0.040878, "review_extreme": false},
+    {"case_id": "HCC_053", "tumor_burden_bin": "small", "corrected_tumor_foreground_ratio": 0.119200, "review_extreme": false},
+    {"case_id": "HCC_090", "tumor_burden_bin": "small", "corrected_tumor_foreground_ratio": 0.050070, "review_extreme": false},
+    {"case_id": "HCC_007", "tumor_burden_bin": "medium", "corrected_tumor_foreground_ratio": 0.342514, "review_extreme": false},
+    {"case_id": "HCC_029", "tumor_burden_bin": "medium", "corrected_tumor_foreground_ratio": 0.533950, "review_extreme": false},
+    {"case_id": "HCC_049", "tumor_burden_bin": "medium", "corrected_tumor_foreground_ratio": 0.484886, "review_extreme": false}
+  ]
+}

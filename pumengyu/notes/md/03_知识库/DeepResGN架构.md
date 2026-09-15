@@ -179,25 +179,24 @@ MLABottleneck3D 做的事：在 8×8×8=512 个位置上建模全局依赖，让
 ##### 消融实验链
 
 ```
-Baseline（弱底座，无残差，InstanceNorm）         → 0.7941
+Baseline（PlainConvUNet，无残差，InstanceNorm）  → 0.8414
     ↓ 换强底座（深层+残差+GroupNorm）
-DeepPlainResGN                                  → ?
+DeepPlainResGN                                  → 0.8248
     ↓ 加 MLA global attention
-DeepResGN + MLA                                 → ?（期望 > MedNeXt）
+DeepResGN + MLA                                 → 0.8251
     ↓ 加 SizeOV4 过采样
-DeepResGN + MLA + SizeOV4                       → ?（期望最高）
+DeepResGN + MLA + SizeOV4                       → 未形成当前主表完整结果
 
 对照：
-MedNeXt（DW sep conv，无MLA）                   → 0.8402
-MedNeXt + SizeOV4                               → 0.8431
+MedNeXt（DW sep conv，无MLA）                   → 0.8561
+MedNeXt + SizeOV4                               → 0.8590
 ```
 
 ---
 
 ##### 核心 Claim
 
-> 旧 MLAUNet 失败的原因是底座太弱，不是 MLA 没用。
-> 在对齐参数量的强底座（DeepResGN）上，MLA 能有效提供 MedNeXt 所缺乏的全局依赖建模，从而超越 MedNeXt。
+> 当前结果不支持“DeepResGN + MLA 超越 MedNeXt”：其 Overall 为 0.8251，低于 MedNeXt 的 0.8561。该路线应作为负向架构证据，而不是预设成功的 Claim。
 
 这个 claim 有完整的消融链支撑：每一步只改一个变量。
 

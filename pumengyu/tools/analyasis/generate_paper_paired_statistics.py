@@ -48,6 +48,18 @@ RESULTS_ROOT = Path(
         "/home/PuMengYu/nnUNet_workspace/results_v2",
     )
 )
+REPAIRED_MHA_MOE_ROOT = Path(
+    os.environ.get(
+        "NNUNET_REPAIRED_MHA_MOE_ROOT",
+        "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902",
+    )
+)
+REPAIRED_MLA_MOE_ROOT = Path(
+    os.environ.get(
+        "NNUNET_REPAIRED_MLA_MOE_ROOT",
+        "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907",
+    )
+)
 OUTPUT_DIR = REPO_ROOT / "pumengyu/notes/paper/statistics"
 FIGURE_DIR = REPO_ROOT / "pumengyu/notes/paper/figures"
 
@@ -76,21 +88,21 @@ EXPECTED_CASE_COUNTS = {
 EXPECTED_TUMOR_DICE = {
     "Internal": {
         "MedNeXt": 0.7600,
-        "MedNeXt_MHA_MoE": 0.7499,
+        "MedNeXt_MHA_MoE": 0.7576,
         "MedNeXt_MLA": 0.7535,
-        MAIN_MODEL: 0.7590,
+        MAIN_MODEL: 0.7509,
     },
     "IRCADb": {
         "MedNeXt": 0.6900,
-        "MedNeXt_MHA_MoE": 0.7261,
+        "MedNeXt_MHA_MoE": 0.7070,
         "MedNeXt_MLA": 0.6778,
-        MAIN_MODEL: 0.7349,
+        MAIN_MODEL: 0.6729,
     },
     "HCC": {
         "MedNeXt": 0.4175,
-        "MedNeXt_MHA_MoE": 0.3943,
+        "MedNeXt_MHA_MoE": 0.4342,
         "MedNeXt_MLA": 0.4645,
-        MAIN_MODEL: 0.4080,
+        MAIN_MODEL: 0.4511,
     },
 }
 
@@ -117,14 +129,33 @@ class CaseMetrics:
     tumor_precision: float | None
 
 
+def model_results_root(model: str) -> Path:
+    if model == "MedNeXt_MHA_MoE":
+        return REPAIRED_MHA_MOE_ROOT
+    if model == MAIN_MODEL:
+        return REPAIRED_MLA_MOE_ROOT
+    return RESULTS_ROOT
+
+
 def internal_fold(model: str) -> Path:
     trainer = f"nnUNetTrainer_{model}"
     return (
-        RESULTS_ROOT
+        model_results_root(model)
         / "Dataset003_Liver"
         / f"{trainer}__nnUNetPlans__3d_fullres"
         / "fold_0"
     )
+
+
+def external_method_dir(model: str, dataset: str) -> Path:
+    root = model_results_root(model)
+    if dataset == "IRCADb":
+        return root / "IRCADb/source_only" / model
+    if dataset == "HCC":
+        repaired_layout = root / "ExternalVal_HCCReferencedCT" / model
+        canonical_layout = root / "Dataset013_HCCReferencedCT/source_only" / model
+        return repaired_layout if repaired_layout.is_dir() else canonical_layout
+    raise ValueError(f"Unsupported external dataset: {dataset}")
 
 
 def dataset_specs() -> tuple[DatasetSpec, ...]:
@@ -144,8 +175,6 @@ def dataset_specs() -> tuple[DatasetSpec, ...]:
         model: internal_fold(model) / "test_viz"
         for model in MODELS
     }
-    ircad_root = RESULTS_ROOT / "IRCADb/source_only"
-    hcc_root = RESULTS_ROOT / "Dataset013_HCCReferencedCT/source_only"
     return (
         DatasetSpec(
             "Internal",
@@ -157,38 +186,40 @@ def dataset_specs() -> tuple[DatasetSpec, ...]:
         DatasetSpec(
             "IRCADb",
             {
-                model: ircad_root / model / "predictions/summary.json"
+                model: external_method_dir(model, "IRCADb")
+                / "predictions/summary.json"
                 for model in MODELS
             },
             {
-                model: ircad_root / model / "report_custom.txt"
+                model: external_method_dir(model, "IRCADb") / "report_custom.txt"
                 for model in MODELS
             },
             {
-                model: ircad_root / model / "predictions"
+                model: external_method_dir(model, "IRCADb") / "predictions"
                 for model in MODELS
             },
             {
-                model: ircad_root / model / "test_viz"
+                model: external_method_dir(model, "IRCADb") / "test_viz"
                 for model in MODELS
             },
         ),
         DatasetSpec(
             "HCC",
             {
-                model: hcc_root / model / "predictions/summary.json"
+                model: external_method_dir(model, "HCC")
+                / "predictions/summary.json"
                 for model in MODELS
             },
             {
-                model: hcc_root / model / "report_custom.txt"
+                model: external_method_dir(model, "HCC") / "report_custom.txt"
                 for model in MODELS
             },
             {
-                model: hcc_root / model / "predictions"
+                model: external_method_dir(model, "HCC") / "predictions"
                 for model in MODELS
             },
             {
-                model: hcc_root / model / "test_viz"
+                model: external_method_dir(model, "HCC") / "test_viz"
                 for model in MODELS
             },
         ),
@@ -693,6 +724,7 @@ def write_markdown(
     audit: dict[str, dict[str, object]],
 ) -> None:
     primary = [row for row in rows if row["metric"] == "tumor_dice"]
+    dataset_labels = {"Internal": "LiTS", "IRCADb": "IRCADb", "HCC": "HCC"}
     lines = [
         "# MedNeXt_MLA_MoE 三组病例级配对统计",
         "",
@@ -700,6 +732,7 @@ def write_markdown(
         "> 主要终点：GT 阳性病例上的 Tumor Dice  ",
         f"> bootstrap：{BOOTSTRAP_REPETITIONS:,} 次，seed={RANDOM_SEED}  ",
         "> 检验：双侧 Wilcoxon signed-rank；同一数据域/指标内三组比较采用 Holm 校正。  ",
+        "> 谱系：MHA+MoE 与 MLA+MoE 使用路由修复后重新训练的 checkpoint；MedNeXt 与纯 MLA 使用现有可信对照。  ",
         "> 解释边界：固定 checkpoint 的病例级配对检验不能替代多随机种子或多 fold 训练。",
         "",
         "## 1. 输入核对",
@@ -710,7 +743,7 @@ def write_markdown(
     for dataset_name in ("Internal", "IRCADb", "HCC"):
         item = audit[dataset_name]
         lines.append(
-            f"| {dataset_name} | {item['n_total']} | {item['n_positive']} | "
+            f"| {dataset_labels[dataset_name]} | {item['n_total']} | {item['n_positive']} | "
             f"{item['n_negative']} | 一致 | 一致 |"
         )
 
@@ -738,7 +771,7 @@ def write_markdown(
             item = audit[dataset_name]["artifacts"][model]
             checkpoint = item["checkpoint"]
             artifact_lines.append(
-                f"| {dataset_name} | {model} | {item['prediction_count']} | "
+                f"| {dataset_labels[dataset_name]} | {model} | {item['prediction_count']} | "
                 f"存在 | 存在 | {item['visualization_png_count']} | "
                 f"通过（epoch {checkpoint['epoch']}）；{item['status']} |"
             )
@@ -747,7 +780,7 @@ def write_markdown(
     lines[section_two_index - 1:section_two_index - 1] = artifact_lines + [""]
     for row in primary:
         lines.append(
-            f"| {row['dataset']} | {row['comparison_label']} | {row['n_pairs']} | "
+            f"| {dataset_labels[str(row['dataset'])]} | {row['comparison_label']} | {row['n_pairs']} | "
             f"{format_float(row['main_mean'])} | "
             f"{format_float(row['comparator_mean'])} | "
             f"{float(row['mean_difference']):+.4f} | "
@@ -760,7 +793,7 @@ def write_markdown(
 
     lines.extend(["", "## 3. 分域解释", ""])
     for dataset_name in ("Internal", "IRCADb", "HCC"):
-        lines.append(f"### {dataset_name}")
+        lines.append(f"### {dataset_labels[dataset_name]}")
         lines.append("")
         for row in [r for r in primary if r["dataset"] == dataset_name]:
             lines.append(
@@ -803,7 +836,7 @@ def write_markdown(
             for item in reversed(ranked[-3:])
         )
         lines.append(
-            f"| {row['dataset']} | {row['comparison_label']} | {best} | {worst} |"
+            f"| {dataset_labels[str(row['dataset'])]} | {row['comparison_label']} | {best} | {worst} |"
         )
 
     lines.extend(
@@ -823,7 +856,7 @@ def write_markdown(
             else str(item["n_false_positive_cases"])
         )
         lines.append(
-            f"| {item['dataset']} | {item['model']} | {item['n_negative']} | "
+            f"| {dataset_labels[str(item['dataset'])]} | {item['model']} | {item['n_negative']} | "
             f"{value} | {case_ids} |"
         )
 
@@ -1050,7 +1083,7 @@ def write_primary_table(
 ) -> None:
     dataset_names = ("Internal", "IRCADb", "HCC")
     dataset_labels = {
-        "Internal": "MSD",
+        "Internal": "LiTS",
         "IRCADb": "IRCADb",
         "HCC": "HCC",
     }
@@ -1071,8 +1104,9 @@ def write_primary_table(
         "",
         f"> 数据核验：9/9 组比较均由相同 case ID 的逐病例结果配对生成；"
         f"涉及的 {valid_checkpoint_count}/4 个 `checkpoint_best.pth` 均通过来源检查。  ",
-        "> 病例数：MSD 26 例（23 例肿瘤阳性）、IRCADb 20 例（15 例肿瘤阳性）、HCC 21 例（均为肿瘤阳性）。  ",
-        "> 产物完整性：IRCADb/HCC 完整；MSD 的 summary、报告和可视化存在，但正式目录缺少 26 例 NIfTI 预测，因此仍标记为部分完成，需在 P0-4 修复。  ",
+        "> 病例数：LiTS 26 例（23 例肿瘤阳性）、IRCADb 20 例（15 例肿瘤阳性）、HCC 21 例（均为肿瘤阳性）。  ",
+        "> 产物完整性：修复后 MHA+MoE 与 MLA+MoE 三域完整；MedNeXt、纯 MLA 的 LiTS 统计输入完整，但正式目录未保留 26 例预测 NIfTI，因此这两个对照的 LiTS 交付状态仍为部分完成。  ",
+        "> 谱系：MHA+MoE 与 MLA+MoE 均读取路由修复后从头重训的 checkpoint；没有混用修复前 MoE 结果。  ",
         "> 本文模型：`MedNeXt_MLA_MoE`（表中简称 MLA+MoE）。  ",
         "> 平均差 = MLA+MoE Tumor Dice − 对照方法 Tumor Dice。正值表示 MLA+MoE 更高，负值表示对照方法更高。  ",
         "",

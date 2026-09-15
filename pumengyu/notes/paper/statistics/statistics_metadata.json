@@ -1,5 +1,5 @@
 {
-  "generated_on": "2026-07-30",
+  "generated_on": "2026-09-10",
   "primary_endpoint": "Tumor Dice on GT-positive cases",
   "main_model": "MedNeXt_MLA_MoE",
   "comparisons": [
@@ -61,15 +61,15 @@
       ],
       "summaries": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json"
       },
       "reports": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt"
       },
       "artifacts": {
         "MedNeXt": {
@@ -129,60 +129,33 @@
           "status": "partial"
         },
         "MedNeXt_MHA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction",
-          "prediction_count": 0,
-          "missing_prediction_case_ids": [
-            "liver_100",
-            "liver_101",
-            "liver_11",
-            "liver_111",
-            "liver_112",
-            "liver_117",
-            "liver_127",
-            "liver_128",
-            "liver_129",
-            "liver_130",
-            "liver_17",
-            "liver_36",
-            "liver_41",
-            "liver_48",
-            "liver_52",
-            "liver_58",
-            "liver_6",
-            "liver_63",
-            "liver_68",
-            "liver_75",
-            "liver_84",
-            "liver_89",
-            "liver_90",
-            "liver_91",
-            "liver_96",
-            "liver_97"
-          ],
+          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction",
+          "prediction_count": 26,
+          "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
-          "predictions_complete": false,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_viz",
-          "visualization_png_count": 2475,
+          "predictions_complete": true,
+          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
+          "report": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/test_viz",
+          "visualization_png_count": 2491,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MHA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 957,
-            "size_bytes": 595892548,
-            "mtime": "2026-07-22T09:09:19",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 951,
+            "size_bytes": 595890244,
+            "mtime": "2026-09-05T21:09:18",
+            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-22T10:33:22",
+            "final_mtime": "2026-09-05T23:58:37",
             "provenance_valid": true
           },
           "statistics_eligible": true,
-          "complete": false,
-          "status": "partial"
+          "complete": true,
+          "status": "complete"
         },
         "MedNeXt_MLA": {
           "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/test_prediction",
@@ -241,60 +214,33 @@
           "status": "partial"
         },
         "MedNeXt_MLA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction",
-          "prediction_count": 0,
-          "missing_prediction_case_ids": [
-            "liver_100",
-            "liver_101",
-            "liver_11",
-            "liver_111",
-            "liver_112",
-            "liver_117",
-            "liver_127",
-            "liver_128",
-            "liver_129",
-            "liver_130",
-            "liver_17",
-            "liver_36",
-            "liver_41",
-            "liver_48",
-            "liver_52",
-            "liver_58",
-            "liver_6",
-            "liver_63",
-            "liver_68",
-            "liver_75",
-            "liver_84",
-            "liver_89",
-            "liver_90",
-            "liver_91",
-            "liver_96",
-            "liver_97"
-          ],
+          "prediction_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction",
+          "prediction_count": 26,
+          "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
-          "predictions_complete": false,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_viz",
-          "visualization_png_count": 2473,
+          "predictions_complete": true,
+          "summary": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_prediction/summary.json",
+          "report": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/test_viz",
+          "visualization_png_count": 2515,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 998,
-            "size_bytes": 590661605,
-            "mtime": "2026-07-15T18:51:40",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 914,
+            "size_bytes": 590640984,
+            "mtime": "2026-09-09T18:17:55",
+            "final_path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-15T18:51:41",
+            "final_mtime": "2026-09-10T00:28:57",
             "provenance_valid": true
           },
           "statistics_eligible": true,
-          "complete": false,
-          "status": "partial"
+          "complete": true,
+          "status": "complete"
         }
       },
       "reference_path_variants": {}
@@ -327,15 +273,15 @@
       ],
       "summaries": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/predictions/summary.json",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA/predictions/summary.json",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/summary.json"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/summary.json"
       },
       "reports": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt/report_custom.txt",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/report_custom.txt",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/report_custom.txt",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA/report_custom.txt",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt"
       },
       "artifacts": {
         "MedNeXt": {
@@ -368,28 +314,28 @@
           "status": "complete"
         },
         "MedNeXt_MHA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/predictions",
+          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/predictions",
           "prediction_count": 20,
           "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
           "predictions_complete": true,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MHA_MoE/test_viz",
-          "visualization_png_count": 668,
+          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
+          "report": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/IRCADb/source_only/MedNeXt_MHA_MoE/test_viz",
+          "visualization_png_count": 692,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MHA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 957,
-            "size_bytes": 595892548,
-            "mtime": "2026-07-22T09:09:19",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 951,
+            "size_bytes": 595890244,
+            "mtime": "2026-09-05T21:09:18",
+            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-22T10:33:22",
+            "final_mtime": "2026-09-05T23:58:37",
             "provenance_valid": true
           },
           "statistics_eligible": true,
@@ -426,28 +372,28 @@
           "status": "complete"
         },
         "MedNeXt_MLA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions",
+          "prediction_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/predictions",
           "prediction_count": 20,
           "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
           "predictions_complete": true,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only/MedNeXt_MLA_MoE/test_viz",
-          "visualization_png_count": 668,
+          "summary": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/predictions/summary.json",
+          "report": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/IRCADb/source_only/MedNeXt_MLA_MoE/test_viz",
+          "visualization_png_count": 726,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 998,
-            "size_bytes": 590661605,
-            "mtime": "2026-07-15T18:51:40",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 914,
+            "size_bytes": 590640984,
+            "mtime": "2026-09-09T18:17:55",
+            "final_path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-15T18:51:41",
+            "final_mtime": "2026-09-10T00:28:57",
             "provenance_valid": true
           },
           "statistics_eligible": true,
@@ -486,15 +432,15 @@
       ],
       "summaries": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt/predictions/summary.json",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/predictions/summary.json",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA/predictions/summary.json",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/predictions/summary.json"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/predictions/summary.json"
       },
       "reports": {
         "MedNeXt": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt/report_custom.txt",
-        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/report_custom.txt",
+        "MedNeXt_MHA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/report_custom.txt",
         "MedNeXt_MLA": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA/report_custom.txt",
-        "MedNeXt_MLA_MoE": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/report_custom.txt"
+        "MedNeXt_MLA_MoE": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/report_custom.txt"
       },
       "artifacts": {
         "MedNeXt": {
@@ -527,28 +473,28 @@
           "status": "complete"
         },
         "MedNeXt_MHA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/predictions",
+          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/predictions",
           "prediction_count": 21,
           "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
           "predictions_complete": true,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/predictions/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MHA_MoE/test_viz",
-          "visualization_png_count": 706,
+          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/predictions/summary.json",
+          "report": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/ExternalVal_HCCReferencedCT/MedNeXt_MHA_MoE/test_viz",
+          "visualization_png_count": 792,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MHA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 957,
-            "size_bytes": 595892548,
-            "mtime": "2026-07-22T09:09:19",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 951,
+            "size_bytes": 595890244,
+            "mtime": "2026-09-05T21:09:18",
+            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-22T10:33:22",
+            "final_mtime": "2026-09-05T23:58:37",
             "provenance_valid": true
           },
           "statistics_eligible": true,
@@ -585,28 +531,28 @@
           "status": "complete"
         },
         "MedNeXt_MLA_MoE": {
-          "prediction_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/predictions",
+          "prediction_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/predictions",
           "prediction_count": 21,
           "missing_prediction_case_ids": [],
           "stale_prediction_case_ids": [],
           "predictions_complete": true,
-          "summary": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/predictions/summary.json",
-          "report": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/report_custom.txt",
-          "visualization_dir": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset013_HCCReferencedCT/source_only/MedNeXt_MLA_MoE/test_viz",
-          "visualization_png_count": 696,
+          "summary": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/predictions/summary.json",
+          "report": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/report_custom.txt",
+          "visualization_dir": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/ExternalVal_HCCReferencedCT/MedNeXt_MLA_MoE/test_viz",
+          "visualization_png_count": 686,
           "visualizations_complete": true,
           "checkpoint": {
             "dataset": "Dataset003_Liver",
             "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
             "fold": 0,
             "checkpoint": "checkpoint_best.pth",
-            "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-            "epoch": 998,
-            "size_bytes": 590661605,
-            "mtime": "2026-07-15T18:51:40",
-            "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+            "path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+            "epoch": 914,
+            "size_bytes": 590640984,
+            "mtime": "2026-09-09T18:17:55",
+            "final_path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
             "final_epoch": 1000,
-            "final_mtime": "2026-07-15T18:51:41",
+            "final_mtime": "2026-09-10T00:28:57",
             "provenance_valid": true
           },
           "statistics_eligible": true,
@@ -616,86 +562,107 @@
       },
       "reference_path_variants": {
         "HCC_003": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_003.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_003.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_003.nii.gz"
         ],
         "HCC_011": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_011.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_011.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_011.nii.gz"
         ],
         "HCC_020": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_020.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_020.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_020.nii.gz"
         ],
         "HCC_021": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_021.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_021.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_021.nii.gz"
         ],
         "HCC_025": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_025.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_025.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_025.nii.gz"
         ],
         "HCC_026": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_026.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_026.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_026.nii.gz"
         ],
         "HCC_028": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_028.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_028.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_028.nii.gz"
         ],
         "HCC_047": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_047.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_047.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_047.nii.gz"
         ],
         "HCC_052": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_052.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_052.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_052.nii.gz"
         ],
         "HCC_055": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_055.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_055.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_055.nii.gz"
         ],
         "HCC_058": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_058.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_058.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_058.nii.gz"
         ],
         "HCC_059": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_059.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_059.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_059.nii.gz"
         ],
         "HCC_060": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_060.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_060.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_060.nii.gz"
         ],
         "HCC_068": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_068.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_068.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_068.nii.gz"
         ],
         "HCC_071": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_071.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_071.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_071.nii.gz"
         ],
         "HCC_078": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_078.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_078.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_078.nii.gz"
         ],
         "HCC_081": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_081.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_081.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_081.nii.gz"
         ],
         "HCC_082": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_082.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_082.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_082.nii.gz"
         ],
         "HCC_083": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_083.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_083.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_083.nii.gz"
         ],
         "HCC_093": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_093.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_093.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_093.nii.gz"
         ],
         "HCC_102": [
+          "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test/labels/HCC_102.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2/labels/HCC_102.nii.gz",
           "/home/PuMengYu/nnUNet_workspace/external_val/hcc_referenced_ct_test_v2_mla/labels/HCC_102.nii.gz"
         ]
@@ -721,13 +688,13 @@
         "trainer": "nnUNetTrainer_MedNeXt_MHA_MoE",
         "fold": 0,
         "checkpoint": "checkpoint_best.pth",
-        "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-        "epoch": 957,
-        "size_bytes": 595892548,
-        "mtime": "2026-07-22T09:09:19",
-        "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+        "path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+        "epoch": 951,
+        "size_bytes": 595890244,
+        "mtime": "2026-09-05T21:09:18",
+        "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2_baseline_retrain_20260902/Dataset003_Liver/nnUNetTrainer_MedNeXt_MHA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
         "final_epoch": 1000,
-        "final_mtime": "2026-07-22T10:33:22",
+        "final_mtime": "2026-09-05T23:58:37",
         "provenance_valid": true
       },
       "MedNeXt_MLA": {
@@ -749,13 +716,13 @@
         "trainer": "nnUNetTrainer_MedNeXt_MLA_MoE",
         "fold": 0,
         "checkpoint": "checkpoint_best.pth",
-        "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
-        "epoch": 998,
-        "size_bytes": 590661605,
-        "mtime": "2026-07-15T18:51:40",
-        "final_path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+        "path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+        "epoch": 914,
+        "size_bytes": 590640984,
+        "mtime": "2026-09-09T18:17:55",
+        "final_path": "/home/PuMengYu/8T/nnUNet_result/results_v2_moe_retrain_after_fix_20260907/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA_MoE__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
         "final_epoch": 1000,
-        "final_mtime": "2026-07-15T18:51:41",
+        "final_mtime": "2026-09-10T00:28:57",
         "provenance_valid": true
       }
     }
@@ -813,8 +780,9 @@
       "dataset": "IRCADb",
       "model": "MedNeXt_MHA_MoE",
       "n_negative": 5,
-      "n_false_positive_cases": 2,
+      "n_false_positive_cases": 3,
       "false_positive_case_ids": [
+        "ircadb_005",
         "ircadb_007",
         "ircadb_014"
       ]
@@ -834,8 +802,9 @@
       "dataset": "IRCADb",
       "model": "MedNeXt_MLA_MoE",
       "n_negative": 5,
-      "n_false_positive_cases": 2,
+      "n_false_positive_cases": 3,
       "false_positive_case_ids": [
+        "ircadb_005",
         "ircadb_007",
         "ircadb_014"
       ]

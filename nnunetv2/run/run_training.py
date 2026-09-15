@@ -200,6 +200,9 @@ def run_training(dataset_name_or_id: Union[str, int],
             False,
             device=device,
         )
+        if not getattr(nnunet_trainer, 'AUTO_VALIDATE_AFTER_TRAINING', True):
+            print('Training finished. This trainer uses a separate final-evaluation entrypoint.')
+            return
         maybe_load_checkpoint(nnunet_trainer, False, True, None)
         if val_with_best:
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
@@ -221,6 +224,9 @@ def run_training(dataset_name_or_id: Union[str, int],
 
         if not only_run_validation:
             nnunet_trainer.run_training()
+            if not getattr(nnunet_trainer, 'AUTO_VALIDATE_AFTER_TRAINING', True):
+                print('Training finished. This trainer uses a separate final-evaluation entrypoint.')
+                return
 
         if val_with_best:
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))

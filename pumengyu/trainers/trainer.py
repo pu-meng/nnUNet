@@ -17,6 +17,7 @@ from pumengyu.mixins import (
     HCCMixTrainingMixin,
     MSDHCCReferencedTrainPretrainMixin,
 )
+from pumengyu.task02.stage2_mixin import Task02Stage2Mixin
 from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
 from pumengyu.architectures.mednext import (
@@ -1812,6 +1813,111 @@ class nnUNetTrainer_MedNeXt_MHA_MoE(nnUNetTrainer_MedNeXt_MHA):
     MHA_USE_MOE: bool = True
 
 
+# ------------------------------------------------------------------ #
+# Task 02: few-shot HCC shared-model adaptation                     #
+# ------------------------------------------------------------------ #
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K01(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=1 target-only full fine-tuning; catastrophic-forgetting control."""
+
+    TASK02_MODE = "hcc_only"
+    TASK02_K = 1
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K03(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=3 target-only full fine-tuning; catastrophic-forgetting control."""
+
+    TASK02_MODE = "hcc_only"
+    TASK02_K = 3
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K05(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=5 target-only full fine-tuning; catastrophic-forgetting control."""
+
+    TASK02_MODE = "hcc_only"
+    TASK02_K = 5
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K10(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=10 target-only full fine-tuning; catastrophic-forgetting control."""
+
+    TASK02_MODE = "hcc_only"
+    TASK02_K = 10
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K01(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=1 HCC + LiTS replay full fine-tuning."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 1
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K03(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=3 HCC + LiTS replay full fine-tuning."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 3
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K05(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=5 HCC + LiTS replay full fine-tuning."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 5
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K10(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 k=10 HCC + LiTS replay full fine-tuning."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 10
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K70(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Task02 full-target upper bound: HCC 70 cases + LiTS replay."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 70
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Task02Smoke_Replay_K03(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
+):
+    """Smoke-only Task02 replay path check; never a formal experiment result.
+
+    It intentionally has a unique trainer name and must run under the separate
+    ``results_task02_smoke`` root. It checks source loading, isolated loaders,
+    the paired HCC/LiTS update and selection artifacts before a formal 300-epoch
+    experiment is launched.
+    """
+
+    TASK02_MODE = "replay"
+    TASK02_K = 3
+    TASK02_RUN_KIND = "smoke"
+    TASK02_NUM_EPOCHS = 3
+    TASK02_UPDATES_PER_EPOCH = 2
+    TASK02_VALIDATION_INTERVAL = 1
+    TASK02_VALIDATION_ITERATIONS = 2
+
+
 class nnUNetTrainer_MedNeXt_MLA_MSDOnly(nnUNetTrainer_MedNeXt_MLA):
     """
     MedNeXt-L + MLA，纯 MSD/LiTS 入口。
@@ -2149,6 +2255,12 @@ class nnUNetTrainer_MedNeXt_MLA_MoE_SizeOV4(nnUNetTrainer_MedNeXt_MLA_SizeOV4):
 
     MLA_USE_MOE: bool = True
 
+    def _do_i_compile(self):
+        # DDPOptimizer in torch 2.3 cannot compile the MoE routing graph because
+        # it contains a higher-order/checkpointed operation. Keep this aligned
+        # with nnUNetTrainer_MedNeXt_MLA_MoE and run the network in eager mode.
+        return False
+
 
 class nnUNetTrainer_MedNeXt_MLA_MLP_SizeOV4(nnUNetTrainer_MedNeXt_MLA_SizeOV4):
     """MedNeXt-L + MLA Attention + 标准 MLP + SizeOV4，关闭 MoE。"""
@@ -2284,7 +2396,7 @@ class nnUNetTrainer_nnFormer(AutoInternalTestMixin, AutoReportMixin, nnUNetTrain
 
 class nnUNetTrainer_DeepPlainResGN(AutoInternalTestMixin, AutoReportMixin, nnUNetTrainer):
     """
-    消融实验：证明 MedNeXt 的性能提升来自"更深 + 残差 + GroupNorm"，
+    消融实验：检验 MedNeXt 的性能提升是否来自"更深 + 残差 + GroupNorm"，
     而非 depthwise separable conv（倒置瓶颈）。
 
     架构（DeepPlainResGN）：
@@ -2294,9 +2406,9 @@ class nnUNetTrainer_DeepPlainResGN(AutoInternalTestMixin, AutoReportMixin, nnUNe
         features=[32,64,128,256,384]，strides 匹配 MedNeXt（底部 8³）
 
     对照链：
-        Baseline（6 stages, InstanceNorm, 无残差）→ 0.7941
-        ↓ +深度 +残差 +GroupNorm（本实验）         → ?
-        MedNeXt（+DW sep conv）                   → 0.8402
+        Baseline（6 stages, InstanceNorm, 无残差）→ 0.8414
+        ↓ +深度 +残差 +GroupNorm（本实验）         → 0.8248
+        MedNeXt（+DW sep conv）                   → 0.8561
 
     结果目录：nnUNetTrainer_DeepPlainResGN__nnUNetPlans__3d_fullres/
     """

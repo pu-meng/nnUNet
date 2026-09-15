@@ -1,4 +1,5 @@
 {
+  "workbench.editor.editorActionsLocation": "default",
   "markdown-pdf.styles": [
     "pumengyu/notes/paper/paper_style.css"
   ],

@@ -1,0 +1,18 @@
+{
+  "split_id": "task02_hcc_k01_seed20260921",
+  "purpose": "Task 02 fixed single few-shot adaptation split",
+  "k": 1,
+  "sampling_seed": 20260921,
+  "training_seed": 20260920,
+  "sampling_algorithm": "numpy.random.default_rng(seed), without replacement within each bin; eligible IDs sorted ascending; bins processed tiny, small, medium, extreme",
+  "quota_by_bin": {"tiny": 0, "small": 1, "medium": 0, "extreme": 0},
+  "candidate_pool": {
+    "dataset": "Dataset013_HCCReferencedCT",
+    "partition": "70-case adaptation pool only",
+    "case_metadata": "pumengyu/notes/data/hcc_split_701020_stratified_v2_cases.csv",
+    "case_metadata_sha256": "17aa097e3c3c21a783b46abf643a246074094ed061d0d8a8ce00a2c5c06d65cc"
+  },
+  "cases": [
+    {"case_id": "HCC_005", "tumor_burden_bin": "small", "corrected_tumor_foreground_ratio": 0.133583, "review_extreme": false}
+  ]
+}

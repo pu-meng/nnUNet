@@ -1,0 +1,5503 @@
+{
+  "model": "nnUNetTrainer_MedNeXt_MHA_MoE",
+  "architecture": "MedNeXt-L + standard MHA + MoE-FFN",
+  "input_shape": "[B,1,128,128,128]",
+  "bottleneck_shape": "[B,512,8,8,8]",
+  "token_shape": "[B,512,512]",
+  "outputs": {
+    "png": "model_architecture.png",
+    "svg": "model_architecture.svg",
+    "detail_png": "model_attention_moe_details.png",
+    "detail_svg": "model_attention_moe_details.svg",
+    "pipeline_png": "model_pipeline.png",
+    "pipeline_svg": "model_pipeline.svg",
+    "markdown": "model_architecture.md",
+    "json": "model_architecture.json"
+  },
+  "layer_coverage": {
+    "encoder_stages": [
+      "Stage0 ×3",
+      "Stage1 ×4",
+      "Stage2 ×8",
+      "Stage3 ×8"
+    ],
+    "decoder_stages": [
+      "Stage3 ×8",
+      "Stage2 ×8",
+      "Stage1 ×4",
+      "Stage0 ×3"
+    ],
+    "bottleneck": [
+      "MedNeXtBlock ×8",
+      "MHATransformerBlock ×2",
+      "final LayerNorm"
+    ],
+    "transformer_block": [
+      "LayerNorm1",
+      "MHA",
+      "residual add",
+      "LayerNorm2",
+      "MoE-FFN",
+      "residual add"
+    ],
+    "mha": [
+      "W_Q/W_K/W_V",
+      "8 heads",
+      "attention [B,8,N,N]",
+      "W_O"
+    ],
+    "moe": [
+      "Router 512→4",
+      "Top-2 + gate",
+      "shared expert",
+      "routed experts 0..3",
+      "gather + sum"
+    ],
+    "decoder_connections": [
+      "E3 → Add3",
+      "E2 → Add2",
+      "E1 → Add1",
+      "E0 → Add0"
+    ]
+  },
+  "pipeline_figure": {
+    "command": "~/model.sh pipeline",
+    "png": "model_pipeline.png",
+    "svg": "model_pipeline.svg",
+    "training": "case list → DefaultPreprocessor → patch/augmentation → forward → deep-supervision Dice+CE → backward/optimizer",
+    "inference": "raw case → same preprocessor → sliding window + Gaussian fusion + optional mirror → export/resample/label"
+  },
+  "skip_connections": [
+    "E0 -> Add0",
+    "E1 -> Add1",
+    "E2 -> Add2",
+    "E3 -> Add3"
+  ],
+  "modification_map": {
+    "local_features": "MedNeXtBlock",
+    "resolution": "DownBlock / UpBlock",
+    "global_context": "MHA bottleneck",
+    "capacity_and_routing": "MoE-FFN",
+    "feature_statistics": "GroupNorm / LayerNorm"
+  },
+  "code_faithful_warning": "Top-2 selects two routed outputs, but all four routed experts are computed before gather.",
+  "static_audit": {
+    "created_at": "2026-09-15T06:45:55+00:00",
+    "trainer_architecture": "nnUNetTrainer_MedNeXt_MHA_MoE",
+    "builder": "pumengyu.architectures.mednext.build_mednext_large_mha",
+    "input_channels": 1,
+    "output_channels": 3,
+    "mha_num_heads": 8,
+    "mha_num_blocks": 2,
+    "mha_mlp_ratio": 4,
+    "mha_use_moe": true,
+    "forward_executed": false,
+    "parameters_total": 74389680,
+    "parameters_trainable": 74389680,
+    "module_class_counts": {
+      "Conv3d": 187,
+      "ConvTranspose3d": 13,
+      "Dropout": 12,
+      "FFNExpert": 10,
+      "GELU": 62,
+      "GroupNorm": 62,
+      "LayerNorm": 5,
+      "Linear": 30,
+      "MHABottleneck3D": 1,
+      "MHATransformerBlock": 2,
+      "MedNeXtBlock": 54,
+      "MedNeXtDownBlock": 4,
+      "MedNeXtMHABot": 1,
+      "MedNeXtUpBlock": 4,
+      "MoEFFN": 2,
+      "ModuleList": 2,
+      "MultiHeadSelfAttention": 2,
+      "OutBlock": 5,
+      "Sequential": 10
+    },
+    "normalization_modules": [
+      {
+        "name": "enc_block_0.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.norm1",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.norm2",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.norm1",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.norm2",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.norm",
+        "class": "LayerNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      }
+    ],
+    "checkpoint_related_modules": [
+      {
+        "name": "<root>",
+        "class": "MedNeXtMHABot",
+        "depth": 0,
+        "children": 24,
+        "own_parameters": 1,
+        "total_parameters": 74389680,
+        "trainable_parameters": 74389680,
+        "has_checkpoint_attribute": true
+      }
+    ],
+    "modules": [
+      {
+        "name": "<root>",
+        "class": "MedNeXtMHABot",
+        "depth": 0,
+        "children": 24,
+        "own_parameters": 1,
+        "total_parameters": 74389680,
+        "trainable_parameters": 74389680,
+        "has_checkpoint_attribute": true
+      },
+      {
+        "name": "stem",
+        "class": "Conv3d",
+        "depth": 1,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 21696,
+        "trainable_parameters": 21696,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_0.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0",
+        "class": "MedNeXtDownBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 15552,
+        "trainable_parameters": 15552,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.conv1",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 4224,
+        "total_parameters": 4224,
+        "trainable_parameters": 4224,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 8256,
+        "total_parameters": 8256,
+        "trainable_parameters": 8256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_0.res_conv",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 2112,
+        "total_parameters": 2112,
+        "trainable_parameters": 2112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 140032,
+        "trainable_parameters": 140032,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_1.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1",
+        "class": "MedNeXtDownBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 109184,
+        "trainable_parameters": 109184,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.conv1",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 33280,
+        "total_parameters": 33280,
+        "trainable_parameters": 33280,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 65664,
+        "total_parameters": 65664,
+        "trainable_parameters": 65664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_1.res_conv",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 8320,
+        "total_parameters": 8320,
+        "trainable_parameters": 8320,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 8,
+        "own_parameters": 0,
+        "total_parameters": 2137088,
+        "trainable_parameters": 2137088,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.4.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.5.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.6.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_2.7.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2",
+        "class": "MedNeXtDownBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 431360,
+        "trainable_parameters": 431360,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.conv1",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 262400,
+        "total_parameters": 262400,
+        "trainable_parameters": 262400,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_2.res_conv",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 33024,
+        "total_parameters": 33024,
+        "trainable_parameters": 33024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 8,
+        "own_parameters": 0,
+        "total_parameters": 8468480,
+        "trainable_parameters": 8468480,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.4.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.5.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.6.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "enc_block_3.7.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3",
+        "class": "MedNeXtDownBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 1714688,
+        "trainable_parameters": 1714688,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.conv1",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1049088,
+        "total_parameters": 1049088,
+        "trainable_parameters": 1049088,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "down_3.res_conv",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 131584,
+        "total_parameters": 131584,
+        "trainable_parameters": 131584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 8,
+        "own_parameters": 0,
+        "total_parameters": 33714176,
+        "trainable_parameters": 33714176,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.4.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.5.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.6.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 4214272,
+        "trainable_parameters": 4214272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "bottleneck.7.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 2097664,
+        "total_parameters": 2097664,
+        "trainable_parameters": 2097664,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3",
+        "class": "MedNeXtUpBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 3296768,
+        "trainable_parameters": 3296768,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.conv1",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 14336,
+        "total_parameters": 14336,
+        "trainable_parameters": 14336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 2101248,
+        "total_parameters": 2101248,
+        "trainable_parameters": 2101248,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1048832,
+        "total_parameters": 1048832,
+        "trainable_parameters": 1048832,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_3.res_conv",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 131328,
+        "total_parameters": 131328,
+        "trainable_parameters": 131328,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 8,
+        "own_parameters": 0,
+        "total_parameters": 8468480,
+        "trainable_parameters": 8468480,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.4.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.5.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.6.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1058560,
+        "trainable_parameters": 1058560,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_3.7.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 524544,
+        "total_parameters": 524544,
+        "trainable_parameters": 524544,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2",
+        "class": "MedNeXtUpBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 829184,
+        "trainable_parameters": 829184,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.conv1",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 7168,
+        "total_parameters": 7168,
+        "trainable_parameters": 7168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 512,
+        "total_parameters": 512,
+        "trainable_parameters": 512,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 526336,
+        "total_parameters": 526336,
+        "trainable_parameters": 526336,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 262272,
+        "total_parameters": 262272,
+        "trainable_parameters": 262272,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_2.res_conv",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 32896,
+        "total_parameters": 32896,
+        "trainable_parameters": 32896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 8,
+        "own_parameters": 0,
+        "total_parameters": 2137088,
+        "trainable_parameters": 2137088,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.4.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.5.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.6.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 267136,
+        "trainable_parameters": 267136,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 132096,
+        "total_parameters": 132096,
+        "trainable_parameters": 132096,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_2.7.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 131200,
+        "total_parameters": 131200,
+        "trainable_parameters": 131200,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1",
+        "class": "MedNeXtUpBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 110976,
+        "trainable_parameters": 110976,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.conv1",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 3584,
+        "total_parameters": 3584,
+        "trainable_parameters": 3584,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 256,
+        "total_parameters": 256,
+        "trainable_parameters": 256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 66048,
+        "total_parameters": 66048,
+        "trainable_parameters": 66048,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 32832,
+        "total_parameters": 32832,
+        "trainable_parameters": 32832,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_1.res_conv",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 8256,
+        "total_parameters": 8256,
+        "trainable_parameters": 8256,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 140032,
+        "trainable_parameters": 140032,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 35008,
+        "trainable_parameters": 35008,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16640,
+        "total_parameters": 16640,
+        "trainable_parameters": 16640,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_1.3.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 16448,
+        "total_parameters": 16448,
+        "trainable_parameters": 16448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0",
+        "class": "MedNeXtUpBlock",
+        "depth": 1,
+        "children": 6,
+        "own_parameters": 0,
+        "total_parameters": 22656,
+        "trainable_parameters": 22656,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.conv1",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1792,
+        "total_parameters": 1792,
+        "trainable_parameters": 1792,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.norm",
+        "class": "GroupNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 128,
+        "total_parameters": 128,
+        "trainable_parameters": 128,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.conv2",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 12480,
+        "total_parameters": 12480,
+        "trainable_parameters": 12480,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.act",
+        "class": "GELU",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.conv3",
+        "class": "Conv3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 6176,
+        "total_parameters": 6176,
+        "trainable_parameters": 6176,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "up_0.res_conv",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 2080,
+        "total_parameters": 2080,
+        "trainable_parameters": 2080,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0",
+        "class": "Sequential",
+        "depth": 1,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 21696,
+        "trainable_parameters": 21696,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.0.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.1.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2",
+        "class": "MedNeXtBlock",
+        "depth": 2,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 7232,
+        "trainable_parameters": 7232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.conv1",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 896,
+        "total_parameters": 896,
+        "trainable_parameters": 896,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.norm",
+        "class": "GroupNorm",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 64,
+        "total_parameters": 64,
+        "trainable_parameters": 64,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.conv2",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3168,
+        "total_parameters": 3168,
+        "trainable_parameters": 3168,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.act",
+        "class": "GELU",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "dec_block_0.2.conv3",
+        "class": "Conv3d",
+        "depth": 3,
+        "children": 0,
+        "own_parameters": 3104,
+        "total_parameters": 3104,
+        "trainable_parameters": 3104,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_0",
+        "class": "OutBlock",
+        "depth": 1,
+        "children": 1,
+        "own_parameters": 0,
+        "total_parameters": 99,
+        "trainable_parameters": 99,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_0.conv_out",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 99,
+        "total_parameters": 99,
+        "trainable_parameters": 99,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_1",
+        "class": "OutBlock",
+        "depth": 1,
+        "children": 1,
+        "own_parameters": 0,
+        "total_parameters": 195,
+        "trainable_parameters": 195,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_1.conv_out",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 195,
+        "total_parameters": 195,
+        "trainable_parameters": 195,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_2",
+        "class": "OutBlock",
+        "depth": 1,
+        "children": 1,
+        "own_parameters": 0,
+        "total_parameters": 387,
+        "trainable_parameters": 387,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_2.conv_out",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 387,
+        "total_parameters": 387,
+        "trainable_parameters": 387,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_3",
+        "class": "OutBlock",
+        "depth": 1,
+        "children": 1,
+        "own_parameters": 0,
+        "total_parameters": 771,
+        "trainable_parameters": 771,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_3.conv_out",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 771,
+        "total_parameters": 771,
+        "trainable_parameters": 771,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_4",
+        "class": "OutBlock",
+        "depth": 1,
+        "children": 1,
+        "own_parameters": 0,
+        "total_parameters": 1539,
+        "trainable_parameters": 1539,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "out_4.conv_out",
+        "class": "ConvTranspose3d",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1539,
+        "total_parameters": 1539,
+        "trainable_parameters": 1539,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot",
+        "class": "MHABottleneck3D",
+        "depth": 1,
+        "children": 2,
+        "own_parameters": 0,
+        "total_parameters": 12607488,
+        "trainable_parameters": 12607488,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks",
+        "class": "Sequential",
+        "depth": 2,
+        "children": 2,
+        "own_parameters": 0,
+        "total_parameters": 12606464,
+        "trainable_parameters": 12606464,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0",
+        "class": "MHATransformerBlock",
+        "depth": 3,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 6303232,
+        "trainable_parameters": 6303232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.norm1",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn",
+        "class": "MultiHeadSelfAttention",
+        "depth": 4,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1048576,
+        "trainable_parameters": 1048576,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn.W_Q",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn.W_K",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn.W_V",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn.W_O",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.attn.attn_drop",
+        "class": "Dropout",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.norm2",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn",
+        "class": "MoEFFN",
+        "depth": 4,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 5252608,
+        "trainable_parameters": 5252608,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.shared_expert",
+        "class": "FFNExpert",
+        "depth": 5,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.shared_expert.fc1",
+        "class": "Linear",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.shared_expert.fc2",
+        "class": "Linear",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.shared_expert.drop",
+        "class": "Dropout",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts",
+        "class": "ModuleList",
+        "depth": 5,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 4200448,
+        "trainable_parameters": 4200448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.0",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.0.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.0.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.0.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.1",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.1.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.1.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.1.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.2",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.2.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.2.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.2.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.3",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.3.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.3.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.experts.3.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.0.ffn.router",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 2048,
+        "total_parameters": 2048,
+        "trainable_parameters": 2048,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1",
+        "class": "MHATransformerBlock",
+        "depth": 3,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 6303232,
+        "trainable_parameters": 6303232,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.norm1",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn",
+        "class": "MultiHeadSelfAttention",
+        "depth": 4,
+        "children": 5,
+        "own_parameters": 0,
+        "total_parameters": 1048576,
+        "trainable_parameters": 1048576,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn.W_Q",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn.W_K",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn.W_V",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn.W_O",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 262144,
+        "total_parameters": 262144,
+        "trainable_parameters": 262144,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.attn.attn_drop",
+        "class": "Dropout",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.norm2",
+        "class": "LayerNorm",
+        "depth": 4,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn",
+        "class": "MoEFFN",
+        "depth": 4,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 5252608,
+        "trainable_parameters": 5252608,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.shared_expert",
+        "class": "FFNExpert",
+        "depth": 5,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.shared_expert.fc1",
+        "class": "Linear",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.shared_expert.fc2",
+        "class": "Linear",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.shared_expert.drop",
+        "class": "Dropout",
+        "depth": 6,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts",
+        "class": "ModuleList",
+        "depth": 5,
+        "children": 4,
+        "own_parameters": 0,
+        "total_parameters": 4200448,
+        "trainable_parameters": 4200448,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.0",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.0.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.0.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.0.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.1",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.1.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.1.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.1.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.2",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.2.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.2.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.2.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.3",
+        "class": "FFNExpert",
+        "depth": 6,
+        "children": 3,
+        "own_parameters": 0,
+        "total_parameters": 1050112,
+        "trainable_parameters": 1050112,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.3.fc1",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 525312,
+        "total_parameters": 525312,
+        "trainable_parameters": 525312,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.3.fc2",
+        "class": "Linear",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 524800,
+        "total_parameters": 524800,
+        "trainable_parameters": 524800,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.experts.3.drop",
+        "class": "Dropout",
+        "depth": 7,
+        "children": 0,
+        "own_parameters": 0,
+        "total_parameters": 0,
+        "trainable_parameters": 0,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.blocks.1.ffn.router",
+        "class": "Linear",
+        "depth": 5,
+        "children": 0,
+        "own_parameters": 2048,
+        "total_parameters": 2048,
+        "trainable_parameters": 2048,
+        "has_checkpoint_attribute": false
+      },
+      {
+        "name": "mla_bot.norm",
+        "class": "LayerNorm",
+        "depth": 2,
+        "children": 0,
+        "own_parameters": 1024,
+        "total_parameters": 1024,
+        "trainable_parameters": 1024,
+        "has_checkpoint_attribute": false
+      }
+    ],
+    "improvement_prompts": [
+      {
+        "question": "哪些模块占据最多参数和计算？",
+        "evidence_to_collect": "controlled forward/backward profiler, not parameter count alone"
+      },
+      {
+        "question": "checkpoint 重计算是否值得保留？",
+        "evidence_to_collect": "same 20-update benchmark with checkpoint on/off, peak memory and sec/update"
+      },
+      {
+        "question": "MoE 是否真的跳过了未选专家？",
+        "evidence_to_collect": "expert forward call counts and per-module profiler time"
+      },
+      {
+        "question": "归一化层保留了还是抹除了域强度信息？",
+        "evidence_to_collect": "feature hooks before/after norm plus intensity probe on fixed HCC/LiTS cases"
+      }
+    ]
+  }
+}

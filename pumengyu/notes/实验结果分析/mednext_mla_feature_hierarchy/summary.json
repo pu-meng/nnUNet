@@ -1,0 +1,144 @@
+{
+  "status": "complete_visualization_only",
+  "created_at": "2026-09-04T06:38:02.900192+00:00",
+  "checkpoint": {
+    "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth",
+    "name": "checkpoint_best.pth",
+    "trainer": "nnUNetTrainer_MedNeXt_MLA",
+    "fold": 0,
+    "current_epoch": 946,
+    "best_ema": 0.9072641730308533,
+    "mtime": "2026-07-17T21:03:06.264326+00:00",
+    "size_bytes": 540174411,
+    "sha256": "dac7aa129f47030943fda80826058fddc4f4b5d7fa6fd3399411c79d7a5cb044",
+    "mla_parameter_key_count": 32,
+    "moe_parameter_key_count": 0,
+    "pure_mla_verified": true,
+    "final_checkpoint_crosscheck": {
+      "path": "/home/PuMengYu/nnUNet_workspace/results_v2/Dataset003_Liver/nnUNetTrainer_MedNeXt_MLA__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth",
+      "current_epoch": 1000,
+      "best_ema": 0.9072641730308533,
+      "trainer": "nnUNetTrainer_MedNeXt_MLA",
+      "mtime": "2026-07-18T00:10:36.393032+00:00",
+      "best_precedes_final": true,
+      "trainer_matches": true
+    }
+  },
+  "data": {
+    "preprocessed_dir": "/home/PuMengYu/nnUNet_workspace/preprocessed/Dataset003_Liver",
+    "case": "liver_119",
+    "patch_policy": "one tumor-centered 128^3 training-space patch"
+  },
+  "layers": {
+    "input": [
+      1,
+      128,
+      128,
+      128
+    ],
+    "input_projection": [
+      32,
+      128,
+      128,
+      128
+    ],
+    "encoder_0": [
+      32,
+      128,
+      128,
+      128
+    ],
+    "encoder_1": [
+      64,
+      64,
+      64,
+      64
+    ],
+    "encoder_2": [
+      128,
+      32,
+      32,
+      32
+    ],
+    "encoder_3": [
+      256,
+      16,
+      16,
+      16
+    ],
+    "conv_bottleneck": [
+      512,
+      8,
+      8,
+      8
+    ],
+    "mla_output": [
+      512,
+      8,
+      8,
+      8
+    ]
+  },
+  "decoder_semantic_heads": {
+    "bottleneck_8": [
+      3,
+      8,
+      8,
+      8
+    ],
+    "decoder_3_16": [
+      3,
+      16,
+      16,
+      16
+    ],
+    "decoder_2_32": [
+      3,
+      32,
+      32,
+      32
+    ],
+    "decoder_1_64": [
+      3,
+      64,
+      64,
+      64
+    ],
+    "decoder_0_128": [
+      3,
+      128,
+      128,
+      128
+    ]
+  },
+  "visualization_definition": {
+    "first_panel": "channel RMS activation energy over CT",
+    "remaining_panels": "up to 8 channels with largest spatial standard deviation",
+    "cyan_contour": "liver including tumor",
+    "pink_contour": "tumor",
+    "decoder_pages": "deep-supervision softmax probabilities, predicted mask, confidence, and tumor TP/FP/FN at each reconstruction scale"
+  },
+  "artifacts": {
+    "summary_json": true,
+    "text_report": true,
+    "visualization_png_count": 15,
+    "visualizations": [
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/00_all_layers_activation_energy.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/01_input.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/02_input_projection.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/03_encoder_0.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/04_encoder_1.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/05_encoder_2.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/06_encoder_3.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/07_conv_bottleneck.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/08_mla_output.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/09_decoder_reconstruction_overview.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/10_bottleneck_8_prediction.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/11_decoder_3_16_prediction.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/12_decoder_2_32_prediction.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/13_decoder_1_64_prediction.png",
+      "/home/PuMengYu/nnUNet/pumengyu/notes/实验结果分析/mednext_mla_feature_hierarchy/test_viz/14_decoder_0_128_prediction.png"
+    ]
+  },
+  "evidence_boundary": "These images show activation patterns from one case. They do not by themselves prove a universal or strictly ordered feature hierarchy."
+}

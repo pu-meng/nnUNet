@@ -27,17 +27,17 @@ from pathlib import Path
 
 EXT_RESULT_ROOT = Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only")
 
-# (method_name, trainer_name, internal_overall)  按内部 Overall 从高到低
+# (method_name, trainer_name, internal_overall)  按 PMY-LT-v1 内部 Overall 从高到低
 METHODS = [
-    ("MoE_SizeOV4",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4",  0.8330),
-    ("SizeOV2",      "nnUNetTrainer_SizeOversampleV2",               0.8187),
-    ("MoE_SizeOV5",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5",  0.8167),
-    ("MoE",          "nnUNetTrainer_MLAUNet_MoE",                    0.8166),
-    ("MoE_SizeOV2",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2",  0.8152),
-    ("MLAUNet",      "nnUNetTrainer_MLAUNet",                        0.8148),
-    ("SizeOV3",      "nnUNetTrainer_SizeOversampleV3",               0.8143),
-    ("NoMirror",     "nnUNetTrainer_NoMirror",                       0.8133),
-    ("Baseline",     "nnUNetTrainer_Baseline",                       0.7941),
+    ("MoE",          "nnUNetTrainer_MLAUNet_MoE",                    0.8585),
+    ("MoE_SizeOV4",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4",  0.8485),
+    ("SizeOV2",      "nnUNetTrainer_SizeOversampleV2",               0.8485),
+    ("MoE_SizeOV5",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV5",  0.8464),
+    ("MoE_SizeOV2",  "nnUNetTrainer_MLAUNet_MoE_SizeOversampleV2",  0.8447),
+    ("MLAUNet",      "nnUNetTrainer_MLAUNet",                        0.8443),
+    ("SizeOV3",      "nnUNetTrainer_SizeOversampleV3",               0.8438),
+    ("NoMirror",     "nnUNetTrainer_NoMirror",                       0.8424),
+    ("Baseline",     "nnUNetTrainer_Baseline",                       0.8414),
 ]
 
 SCRIPT = Path(__file__).parent / "03_gen_method_report.py"

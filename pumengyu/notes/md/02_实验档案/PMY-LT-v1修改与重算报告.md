@@ -4,6 +4,8 @@
 > 指标标准：`PMY-LT-v1`  
 > 目的：固定肝脏/肿瘤分割的主指标口径，避免 GT 无肿瘤病例的 0/1/NaN 约定改变 Tumor Dice 分母、方法排名和消融结论。
 
+> **2026-09-03 更新：** 本文原 Baseline 示例来自后来确认不可追溯的旧 best，现已由可信重训结果替换。第 4.1 节及相关完成状态以新 Baseline 为准；其余段落保留为 2026-07-18 指标口径修复记录。
+
 ## 1. 以后必须遵守的原则
 
 ### 1.1 固定评估总体
@@ -97,12 +99,12 @@ Internal 的 `NoMirror` 和 `SizeOV3` 历史目录已缺失预测 NIfTI 和 `tes
 
 | 指标 | Baseline | NoMirror | 正确结论 |
 |---|---:|---:|---|
-| Liver Dice（all 26） | 0.9340 | 0.9581 | NoMirror 上升 0.0241 |
-| Tumor Dice（positive 23） | 0.7395 | 0.7267 | NoMirror 下降 0.0128 |
-| Overall（PMY-LT-v1） | 0.8368 | 0.8424 | NoMirror 小幅上升 0.0056，由 Liver 提升驱动 |
-| 无肿瘤 FP 率 | 3/3 | 2/3 | NoMirror 减少 1 个阴性误报，但 liver_89 误报体素明显增加 |
+| Liver Dice（all 26） | 0.9516 | 0.9581 | NoMirror 上升 0.0065 |
+| Tumor Dice（positive 23） | 0.7311 | 0.7267 | NoMirror 下降 0.0044 |
+| Overall（PMY-LT-v1） | 0.8414 | 0.8424 | NoMirror 仅上升 0.0010，由 Liver 提升驱动 |
+| 无肿瘤 FP 率 | 2/3 | 2/3 | 病例级误报率不变，但误报病例身份发生交换 |
 
-因此，现在“四个肿瘤大小组都下降”与“总 Tumor Dice 下降”完全一致，旧报告中总 Tumor Dice 反而上升的动态分母矛盾已消除。
+新 Baseline 下 NoMirror 仍表现为更高 Precision、更低 Recall，但四个大小组不再同向变化，病例级无肿瘤误报率也不再改善。该比较只有各一次完整训练，应作为观察性消融，不作多随机种子意义下的稳定因果归因。
 
 ### 4.2 新口径下的三域第 1
 
@@ -140,6 +142,8 @@ IRCADb 和 internal 的排名已重排；HCC 因 21 例全部为阳性，主指�
 - IRCADb：28 个公平方法中 27 个具备预测、summary、report 和 PNG；FP-Safe 的 PNG=0。
 - HCCReferencedCT v2：28/28 个公平方法均有 21/21 预测、summary、report 和实际 PNG。
 - 多数历史外部报告尚未将实际 checkpoint 文件名和来源完整写入报告，因此除已核验的 MHA/MLA 外，历史方法的 provenance 仍应标记为未完全验证。
+
+2026-09-03 补充：新 Baseline 已单独达到完整交付标准。其 LiTS/IRCADb/HCC 分别具备 26/20/21 例预测、`summary.json`、文本报告和 2471/652/677 张 PNG；正式 `checkpoint_best.pth` 记录 epoch 969，SHA256 为 `69d6e082f23bc2fbe914548d11c4237bd8874bda676f12d19240f790b8faf208`。上述完成不改变本节对其余历史方法的审计结论。
 
 ## 8. 以后新实验的固定流程
 

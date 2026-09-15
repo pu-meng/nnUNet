@@ -1746,6 +1746,8 @@ class AutoInternalTestMixin:
 
         report_path = result_dir / "report_custom.txt"
         report_ok = report_path.is_file() and report_path.stat().st_size > 0
+        provenance_path = result_dir / "evaluation_provenance.json"
+        provenance_ok = provenance_path.is_file() and provenance_path.stat().st_size > 0
         viz_dir = result_dir / "test_viz"
         viz_png = sum(1 for _ in viz_dir.rglob("*.png")) if viz_dir.is_dir() else 0
 
@@ -1755,12 +1757,14 @@ class AutoInternalTestMixin:
             and len(predicted) == len(expected)
             and summary_cases == len(expected)
             and report_ok
+            and provenance_ok
             and (viz_png > 0 or not require_viz)
         )
         detail = (
             f"预测={len(predicted)}/{len(expected)}, 缺失={missing or '无'}, "
             f"陈旧={stale or '无'}, summary={summary_cases}/{len(expected)}, "
-            f"报告={'有' if report_ok else '无'}, PNG={viz_png}"
+            f"报告={'有' if report_ok else '无'}, "
+            f"来源记录={'有' if provenance_ok else '无'}, PNG={viz_png}"
         )
         return complete, detail
 
@@ -1781,6 +1785,10 @@ class AutoInternalTestMixin:
         force = self._auto_external_force()
         env = _os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        model_results_root = Path(
+            env.get("nnUNet_results", "/home/PuMengYu/nnUNet_workspace/results_v2")
+        )
+        env["nnUNet_results"] = str(model_results_root)
 
         try:
             self.network.to("cpu")  # type: ignore
@@ -1795,12 +1803,12 @@ class AutoInternalTestMixin:
             (
                 "IRCADb",
                 repo_root / "pumengyu" / "ext_val" / "03_gen_method_report.py",
-                Path("/home/PuMengYu/nnUNet_workspace/results_v2/IRCADb/source_only") / method,
+                model_results_root / "IRCADb" / "source_only" / method,
             ),
             (
                 "HCC",
                 repo_root / "pumengyu" / "ext_val" / "05_gen_hcc_test_report.py",
-                Path("/home/PuMengYu/nnUNet_workspace/results_v2/ExternalVal_HCCReferencedCT") / method,
+                model_results_root / "ExternalVal_HCCReferencedCT" / method,
             ),
         ]
         statuses: list[str] = []
@@ -1829,6 +1837,8 @@ class AutoInternalTestMixin:
                     "--fold", str(getattr(self, "fold", 0)),
                     "--gpu", str(gpu),
                     "--checkpoint", "checkpoint_best.pth",
+                    "--model_results_root", str(model_results_root),
+                    "--result_root", str(result_dir.parent),
                 ]
                 if no_vis:
                     cmd.append("--no_vis")
