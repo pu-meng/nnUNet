@@ -7,6 +7,8 @@
 #   TASK02_CUDA_VISIBLE_DEVICES=0,1 TASK02_NUM_GPUS=2 \
 #     bash pumengyu/task02/run_task02_stage2.sh \
 #     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K70
+# To explicitly discard an epoch-0 failure with no checkpoint or final
+# evaluation directory, add TASK02_CLEAR_FAILED=1 to the launch command.
 #
 # This file deliberately starts training only. After the run finishes, first
 # inspect task02_manifest.json, task02_validation_history.jsonl and
@@ -45,12 +47,42 @@ export nnUNet_results="${TASK02_RESULTS_ROOT:-${TASK02_WORKSPACE}/results_task02
 export CUDA_VISIBLE_DEVICES="${TASK02_CUDA_VISIBLE_DEVICES:-0}"
 
 NUM_GPUS="${TASK02_NUM_GPUS:-1}"
+CLEAR_FAILED="${TASK02_CLEAR_FAILED:-0}"
+if [[ "$CLEAR_FAILED" != "0" && "$CLEAR_FAILED" != "1" ]]; then
+    echo "TASK02_CLEAR_FAILED must be 0 (default) or 1." >&2
+    exit 2
+fi
+
 FOLD_DIR="${nnUNet_results}/Dataset003_Liver/${TRAINER}__nnUNetPlans__3d_fullres/fold_0"
+TRAINER_DIR="$(dirname "$FOLD_DIR")"
+EVALUATION_DIR="${nnUNet_results}/Task02_FinalEvaluation/${TRAINER#nnUNetTrainer_}"
 if [[ -e "$FOLD_DIR" ]]; then
-    echo "Refusing to reuse or overwrite existing Task02 result directory:" >&2
-    echo "  $FOLD_DIR" >&2
-    echo "Use a new TASK02_RESULTS_ROOT for a new run; --c is not part of the frozen protocol." >&2
-    exit 1
+    if [[ "$CLEAR_FAILED" != "1" ]]; then
+        echo "Refusing to reuse or overwrite existing Task02 result directory:" >&2
+        echo "  $FOLD_DIR" >&2
+        echo "For a confirmed checkpoint-free failure, rerun with TASK02_CLEAR_FAILED=1." >&2
+        echo "--c is not part of the frozen protocol." >&2
+        exit 1
+    fi
+    if pgrep -f -- "nnUNetv2_train.*-tr ${TRAINER}" >/dev/null; then
+        echo "Refusing to clear an active Task02 training run: $TRAINER" >&2
+        exit 1
+    fi
+    if find "$FOLD_DIR" -type f -name '*.pth' -print -quit | grep -q .; then
+        echo "Refusing to clear $FOLD_DIR because it contains checkpoint files." >&2
+        exit 1
+    fi
+    if [[ -e "$EVALUATION_DIR" ]]; then
+        echo "Refusing to clear $FOLD_DIR because final-evaluation data exists:" >&2
+        echo "  $EVALUATION_DIR" >&2
+        exit 1
+    fi
+    if ! command -v gio >/dev/null 2>&1; then
+        echo "Cannot safely clear failed run: gio trash is unavailable." >&2
+        exit 1
+    fi
+    echo "[Task02] moving checkpoint-free failed run to trash: $TRAINER_DIR"
+    gio trash --force "$TRAINER_DIR"
 fi
 
 echo "[Task02] trainer=$TRAINER"

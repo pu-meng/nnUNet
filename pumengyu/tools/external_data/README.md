@@ -26,7 +26,7 @@ CHAOS 下载地址：`grand-challenge.org` 搜索 CHAOS 2019，注册后免费�
 | `convert_chaos.py` | CHAOS DICOM + PNG Ground → staging nii.gz |
 | `inject.py` | staging nii.gz → preprocessed + 修改 splits + 写 log |
 | `eject.py` | 根据 log 完整回退 |
-| `../../notes/sh/run_external_import.sh` | 一键导入脚本 |
+| `run_external_import.sh` | 一键导入脚本 |
 
 ---
 
@@ -36,13 +36,13 @@ CHAOS 下载地址：`grand-challenge.org` 搜索 CHAOS 2019，注册后免费�
 
 ```bash
 cd /home/PuMengYu/nnUNet
-bash pumengyu/notes/sh/run_external_import.sh --dry_run
+bash pumengyu/tools/external_data/run_external_import.sh --dry_run
 ```
 
 ### 第二步：正式导入
 
 ```bash
-bash pumengyu/notes/sh/run_external_import.sh
+bash pumengyu/tools/external_data/run_external_import.sh
 ```
 
 脚本会自动：

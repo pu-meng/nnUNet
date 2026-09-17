@@ -10,7 +10,7 @@
 #   python pumengyu/tools/external_data/eject.py
 #
 # 先试运行（不实际执行）：
-#   bash pumengyu/notes/sh/run_external_import.sh --dry_run
+#   bash pumengyu/tools/external_data/run_external_import.sh --dry_run
 
 set -e
 cd /home/PuMengYu/nnUNet
