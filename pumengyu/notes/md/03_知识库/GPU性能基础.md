@@ -1,132 +1,8 @@
 # GPU 性能基础
 
-# GPU 性能分析：NCU + nsys 完整指南
+按硬件概念查阅。实际 profiling 命令见 [NCU / nsys](NCU_nsys命令.md)，IB7 与 Flash Attention 案例见 [GPU 实战案例](GPU实战案例.md)。
 
-
-#### GPU 性能分析：NCU + nsys 完整指南
-
-> MFU 是单一数字，藏掉了所有细节。NCU 精确到每个 kernel 的硬件指标，nsys 看全局时间线。两者配合才是完整的 GPU 性能分析。
-
----
-
-##### 知识缺口与学习计划
-
-**当前状态**：会 Python/PyTorch 训练，会用 NCU/nsys 看指标，硬件基础接近零。
-**学习方式**：AI 问答 + 写入 .md 持续更新，不看教材和视频，用碎片时间推进。
-**核心原则**：每个概念都要和真实项目或 NCU 实验连起来，不学脱离实践的纯理论。
-
----
-
-###### 阶段一：概念补齐（AI 问答，现在就可以做）
-
-用零散时间问 AI，理解后写进对应 .md，不需要连续学习块。
-
-| 知识点 | 状态 | 连接到实际的什么 |
-|--------|------|----------------|
-| Thread/Warp/SM 层次 | ✅ 本文件已覆盖 | NCU 里的 occupancy/stall |
-| 内存层次（寄存器→L1→L2→HBM） | ✅ 本文件已覆盖 | stall_long_scoreboard 在哪层 |
-| FP32/FP16/BF16/INT8/FP8 | ✅ 本文件已覆盖 | nnUNet 混合精度训练 |
-| Roofline 模型 | ✅ 本文件已覆盖 | compute/memory bound 判断 |
-| PCIe / NVLink / NCCL | ✅ 本文件已覆盖 | 双卡训练通信瓶颈 |
-| Cache 局部性（时间/空间） | ⬜ 未覆盖 | coalesced access 为什么快 |
-| Warp Divergence | ⬜ 未覆盖 | GPU 里 if/else 为什么代价高 |
-| 流水线与 ILP | ⬜ 未覆盖 | stall_no_instruction 的成因 |
-| Bank Conflict | ⬜ 未覆盖 | shared memory 操作为什么慢 |
-| 量化原理（PTQ/QAT） | ⬜ 未覆盖 | FP8 训练、INT8 推理 |
-| ZeRO / 显存优化 | ⬜ 未覆盖 | 大模型训练显存怎么省 |
-| Tensor/Pipeline 并行 | ⬜ 未覆盖 | DeepSeek 多机训练策略 |
-
-###### 阶段二：C++ 基础（有空才推进，一个月后）
-
-不需要教材，直接问 AI 要代码例子，自己改、自己跑。
-
-```
-目标：能看懂 CUDA C++ 代码，能改别人的 kernel
-路线（每个都实际写代码）：
-  指针与内存管理（malloc/free，栈vs堆）
-  引用 vs 指针
-  模板基础（理解 CUDA kernel 名字里的 <T, N>）
-  类与构造函数（理解 CUDA 里的 struct）
-方式：问 AI 要一个概念 + 一段 20 行以内的例子，改通为止
-```
-
-###### 阶段三：CUDA kernel 实战（C++ 之后）
-
-**这是唯一不能只靠 .md 的阶段，必须写代码。**
-
-```
-5 个必写的 kernel（从简到难）：
-  1. 向量加法          ← CUDA 语法入门，理解 threadIdx/blockIdx
-  2. 矩阵乘（naive）   ← 理解为什么慢（global memory 访问多）
-  3. 矩阵乘（tiling）  ← 理解 shared memory，用 NCU 验证提升
-  4. Reduction（求和） ← 理解 warp shuffle 和 __syncthreads
-  5. Fused Softmax     ← 第一个真正的 kernel fusion
-
-每个 kernel 写完 → NCU profile → 对比 stall 指标 → 理解优化效果
-此时 NCU 数字才真正有意义（知道看什么，知道怎么改）
-```
-
-###### 期末后有空再看的书单
-
-不用按顺序，按当时的需要选。
-
-| 书名 | 难度 | 读哪部分 | 解决什么问题 |
-|------|------|---------|------------|
-| 《深入理解计算机系统》(CS:APP) | ⭐⭐ | 第1-6章 | Cache 局部性、流水线、内存层次，所有硬件直觉的根基 |
-| 《Programming Massively Parallel Processors》(Kirk & Hwu) | ⭐⭐⭐ | 第1-8章 | CUDA 编程模型、shared memory、tiling，写 kernel 的圣经 |
-| CUDA C++ Programming Guide | ⭐⭐⭐ | 全部（当手册查） | NVIDIA 官方，最权威，免费，遇到问题直接搜 |
-| 《计算机体系结构：量化研究方法》(Hennessy & Patterson) | ⭐⭐⭐⭐ | 第1-5章 | DRAM/内存控制器/并行体系结构，进阶硬件原理 |
-| Flash Attention 论文（Dao et al. 2022） | ⭐⭐⭐ | 全文 | 把 IO-aware 优化想法读透，NCU 数据会完全对上 |
-| DeepSeek-V2/V3 技术报告 | ⭐⭐ | 全文 | MLA/MoE/FP8 工程细节，直接对应你现在学的 |
-
----
-
-###### 现在可以立刻做的
-
-```
-遇到 NCU 输出里不懂的指标 → 直接问 AI → 写进本文件
-遇到不懂的硬件概念（cache/pipeline/divergence）→ 直接问 AI → 写进本文件
-用 nsys profile 一次 nnUNet 训练 → 看哪个 kernel 最慢 → 记录结果
-```
-
----
-
-##### 目录
-
-**1. 硬件基础**
-- 1.1 [CPU vs GPU 设计哲学](#硬件基础cpu-vs-gpu-设计哲学)
-- 1.2 [GPU 内部结构：Thread / Warp / SM](#gpu-内部结构thread--warp--sm)
-- 1.3 [数值格式：FP32 / FP16 / BF16 / INT8](#数值格式fp32--fp16--bf16--int8)
-- 1.4 [内存层次结构](#内存层次结构)
-- 1.5 [为什么 FLOPs ≠ 运行时间（Roofline 模型）](#为什么-flops--运行时间)
-
-**2. 性能指标体系**
-- 2.1 [指标层次结构（MFU → Occupancy → Warp Stall → 访存模式）](#指标层次结构从粗到细)
-
-**3. CPU-GPU / GPU-GPU 通信**
-- 3.1 [CPU-GPU 通信结构与机制（PCIe / Pinned / Stream / H2D）](#cpu-gpu-通信结构与机制)
-- 3.2 [GPU-GPU 通信：NVLink vs PCIe / NCCL 集合通信](#gpu-gpu-通信nvlink-vs-pcie)
-- 3.3 [多卡通信分析（双 4090 实战）](#多卡通信分析双-4090)
-
-**4. 工具安装与使用**
-- 4.1 [完整工具栈（nvidia-smi / nvtop / torch.profiler / nsys / ncu）](#完整工具栈)
-- 4.2 [安装](#安装)
-- 4.3 [权限设置](#权限设置)
-- 4.4 [NCU 使用（命令 / 指标速查 / 计算量 / 分配）](#ncu-使用)
-- 4.5 [nsys 使用](#nsys-使用)
-- 4.6 [Kernel 名字怎么读](#kernel-名字怎么读)
-
-**5. 实战**
-- 5.1 [直接 profile nnUNet 训练（不需要改代码）](#不需要改代码直接-profile-nnunet-训练)
-- 5.2 [naive vs Flash Attention 真实 NCU 数据对比](#实战naive-vs-flash-attention)
-- 5.3 [IBConv(k=7) 为什么比 baseline 慢 6×](#实战ibconvk7-为什么比-baseline-慢-6)
-
-**6. 工程思维**
-- 6.1 [DeepSeek 的工程循环](#deepseek-的工程循环)
-
----
-
-##### 硬件基础：CPU vs GPU 设计哲学
+## 硬件基础：CPU vs GPU 设计哲学
 
 CPU 和 GPU 的设计目标完全相反，这是理解所有后续概念的根基。
 
@@ -155,7 +31,7 @@ GPU 靠"数量"而不是"质量"赢，所以它的核越多越好，每个核越
 
 ---
 
-##### GPU 内部结构：Thread / Warp / SM
+## GPU 内部结构：Thread / Warp / SM
 
 这四个层次是理解 NCU 所有指标的基础。
 
@@ -227,7 +103,7 @@ sm__throughput               SM 整体忙碌程度
 
 ---
 
-##### 数值格式：FP32 / FP16 / BF16 / INT8
+## 数值格式：FP32 / FP16 / BF16 / INT8
 
 数值格式直接决定内存占用、带宽压力、计算速度。
 
@@ -284,7 +160,7 @@ DeepSeek V3 训练用 FP8：
 
 ---
 
-##### 为什么 FLOPs ≠ 运行时间
+## 为什么 FLOPs ≠ 运行时间
 
 GPU 有两个瓶颈，实际速度取决于慢的那个：
 
@@ -306,7 +182,7 @@ RTX 4090 峰值：
 
 ---
 
-##### 内存层次结构
+## 内存层次结构
 
 ```
 寄存器（~0 cycle，每线程私有）
@@ -324,9 +200,9 @@ Flash Attention 的核心：把 [B,H,N,N] 中间注意力矩阵从"每步落到 
 
 ---
 
-##### 指标层次结构（从粗到细）
+## 指标层次结构（从粗到细）
 
-###### 第一层：MFU
+### 第一层：MFU
 
 ```
 MFU = 实际 FLOPS / 硬件峰值 FLOPS
@@ -337,7 +213,7 @@ MFU = 实际 FLOPS / 硬件峰值 FLOPS
 
 只告诉你"没跑满"，不告诉你为什么。
 
-###### 第二层：SM / Warp Occupancy
+### 第二层：SM / Warp Occupancy
 
 ```
 Warp Occupancy = 平均活跃 warp 数 / 理论最大 warp 数
@@ -351,7 +227,7 @@ GPU 靠切换 warp 隐藏延迟：
   Shared Memory 太多：挤占其他 warp 的空间
 ```
 
-###### 第三层：Warp Stall 原因（直达硬件，最重要）
+### 第三层：Warp Stall 原因（直达硬件，最重要）
 
 ```
 stall_long_scoreboard    等 HBM 数据      ← 内存瓶颈的直接体现，优化首选
@@ -362,7 +238,7 @@ stall_no_instruction     指令发射跟不上（ILP 不足）
 stall_mio_throttle       原子操作/非对齐访问堵塞
 ```
 
-###### 第四层：内存访问模式
+### 第四层：内存访问模式
 
 ```
 Coalescing（合并访问）：

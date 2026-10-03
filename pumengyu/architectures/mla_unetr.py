@@ -45,6 +45,7 @@ class MultiHeadLatentAttention(nn.Module):
     参数量对比（d_model=256, h=8, compression_ratio=4, d_c=64）：
         标准 MHA（W_Q, W_K, W_V, W_O）: 4 × 256² ≈ 262k
         MLA（W_Q, W_DKV, W_UK, W_UV, W_O）: 256²×2 + 256×64×3 ≈ 179k  → 少 32%
+    
     """
 
     def __init__(
@@ -66,6 +67,7 @@ class MultiHeadLatentAttention(nn.Module):
 
         # KV 压缩：x → 低秩潜变量 c_kv
         self.W_DKV = nn.Linear(d_model, self.d_c, bias=False)
+         #创建一个LayerNorm层,挂到self.norm_c上,不是存放数据的容器,创建时候会初始化可以学习的缩放和偏移参数
         self.norm_c = nn.LayerNorm(self.d_c)
 
         # KV 上投影：c_kv → K, V（各 d_model）
@@ -114,13 +116,84 @@ class MultiHeadSelfAttention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape   #X:[B,N,C]
+        h, d = self.num_heads, self.d_head
+        q = self.W_Q(x).reshape(B, N, h, d).transpose(1, 2) #q:[B,h,N,d]
+        k = self.W_K(x).reshape(B, N, h, d).transpose(1, 2)  #k:[B,h,N,d]
+        v = self.W_V(x).reshape(B, N, h, d).transpose(1, 2)
+        attn = (q @ k.transpose(-2, -1)) * self.scale    #attn:[B,h,N,N]
+        attn = self.attn_drop(F.softmax(attn, dim=-1))
+        out = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        return self.W_O(out)
+
+
+class DistanceBiasedSelfAttention(MultiHeadSelfAttention):
+    """MHA with a fixed 3D locality prior, kept separate from standard MHA.
+
+    The prior is applied multiplicatively to post-softmax attention weights and
+    renormalized.  A spatial grid is supplied by ``DistanceBiasedMHABottleneck3D``
+    for each input shape; no distance tensor is stored in checkpoints.
+    """
+
+    def __init__(self, d_model: int, num_heads: int, distance_alpha: float = 0.01,
+                 attn_drop: float = 0.0):
+        super().__init__(d_model, num_heads, attn_drop)
+        if distance_alpha < 0:
+            #因为exp(-alpha*distance^2)中的alpha必须为非负数
+            raise ValueError("distance_alpha must be non-negative")
+        self.distance_alpha = float(distance_alpha)
+        self._spatial_shape = None
+        #带着_是python默认内部使用.外部不会访问
+        self._distance_cache = {}#缓存字典
+
+    def set_spatial_shape(self, spatial):
+        spatial = tuple(int(v) for v in spatial)
+        if len(spatial) != 3 or any(v <= 0 for v in spatial):
+            raise ValueError(f"Expected positive 3D spatial shape, got {spatial}")
+        self._spatial_shape = spatial
+
+    def _get_distance_weight(self, device, dtype):
+        if self._spatial_shape is None:
+            raise RuntimeError("Spatial shape must be set before distance-biased attention")
+        key = (self._spatial_shape, str(device), dtype)
+        #例如:key=(128,128,128),str(device)=cuda:0,dtype=float32)
+        if key not in self._distance_cache:
+            D, H, W = self._spatial_shape
+            #d,h,w是形状为(D,H,W)的张量,d[i,j,k]=i,h[i,j,k]=j,w[i,j,k]=k
+            d, h, w = torch.meshgrid(
+                torch.arange(D, device=device), torch.arange(H, device=device),
+                torch.arange(W, device=device), indexing="ij"
+            )
+            #.stack表示新增一个维度,把多个张量叠在一起,
+            #torch.stack((d, h, w), dim=-1)的形状为(D,H,W,3)
+            #.reshape(-1, 3)的形状为(D*H*W,3),-1表示这个一个维度的大小根据总数自动计算
+            coords = torch.stack((d, h, w), dim=-1).reshape(-1, 3).to(dtype)
+            #coords:(D*H*W,3),每一行是一个体素的坐标
+            #:表示保留当前维度的全部元素,None表示插入一个长度为1的维度,
+            #coords[:, None]:(D*H*W,1,3),:只代表一个维度,
+            #coords[None, :]:(1,D*H*W,3)
+            #.square()表示每个元素分别平方,dim=-1表示在最后一个维度上求和,得到每两个体素之间的欧氏距离平方
+            dist2 = (coords[:, None] - coords[None, :]).square().sum(dim=-1) #沿着最后一个维度求和,默认会去掉最后一个维度,
+            self._distance_cache[key] = torch.exp(-self.distance_alpha * dist2)
+        return self._distance_cache[key]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
         h, d = self.num_heads, self.d_head
         q = self.W_Q(x).reshape(B, N, h, d).transpose(1, 2)
         k = self.W_K(x).reshape(B, N, h, d).transpose(1, 2)
         v = self.W_V(x).reshape(B, N, h, d).transpose(1, 2)
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = self.attn_drop(F.softmax(attn, dim=-1))
+        attn = F.softmax((q @ k.transpose(-2, -1)) * self.scale, dim=-1)
+        weight = self._get_distance_weight(x.device, attn.dtype)
+        if weight.shape != (N, N):
+            raise RuntimeError(
+                f"Distance grid {weight.shape} does not match token count {(N, N)}"
+            )
+
+        attn = attn * weight[None, None]#不加None也没问题会自动拓展
+
+        attn = attn / attn.sum(dim=-1, keepdim=True).clamp_min(torch.finfo(attn.dtype).tiny)
+        attn = self.attn_drop(attn)
         out = (attn @ v).transpose(1, 2).reshape(B, N, C)
         return self.W_O(out)
 
@@ -134,7 +207,7 @@ class FFNExpert(nn.Module):
 
     def __init__(self, d_model: int, d_ff: int, drop: float = 0.0):
         super().__init__()
-        self.fc1  = nn.Linear(d_model, d_ff)
+        self.fc1  = nn.Linear(d_model, d_ff)   #fc1:
         self.fc2  = nn.Linear(d_ff, d_model)
         self.drop = nn.Dropout(drop)
 
@@ -169,23 +242,22 @@ class MoEFFN(nn.Module):
         drop: float = 0.0,
     ):
         super().__init__()
-        d_ff = d_model * mlp_ratio // 2
+        d_ff = d_model * mlp_ratio // 2   #d_ff是每个专家中间隐藏层的通道数
 
         self.num_routed_experts = num_routed_experts
         self.top_k = top_k
 
-        self.shared_expert = FFNExpert(d_model, d_ff, drop)
+        self.shared_expert = FFNExpert(d_model, d_ff, drop) #创建一个共享专家
         self.experts = nn.ModuleList([FFNExpert(d_model, d_ff, drop) for _ in range(num_routed_experts)])
+#router是给路由专家打分的可以学习的分配器,输入是d_model维度的特征,输出是num_routed_experts维度的分数
+#挑选是针对每个空间位置分别进行的,不同位置可以选择不同的专家,
         self.router  = nn.Linear(d_model, num_routed_experts, bias=False)
 
         self.register_buffer('expert_bias',     torch.zeros(num_routed_experts))
         self.register_buffer('expert_load_ema', torch.full((num_routed_experts,), 1.0 / num_routed_experts))
-        # Transient statistics from the current training iteration. This is
-        # deliberately not a buffer: it must not enter checkpoints or DDP's
-        # buffer broadcast. Gradient checkpointing may execute forward twice;
-        # both executions overwrite this value, while the routing state itself
-        # remains unchanged until backward has completed.
-        self._pending_expert_counts: torch.Tensor | None = None
+      
+        self._pending_expert_counts: torch.Tensor | None = None  #暂存本次各个专家被选中多少次
+        #torch.Tensor | None表示类型提示,表示这个变量可以是torch.Tensor类型或者是None类型
 
     @torch.no_grad()
     def _record_expert_load(self, topk_idx: torch.Tensor) -> None:
@@ -348,16 +420,18 @@ class MLABottleneck3D(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, C, *spatial = x.shape
+        B, C, *spatial = x.shape #前两个维度给B,C,剩下的给spatial
+        #比如x.shape=(2,256,32,32,32),那么B=2,C=256,spatial=[32,32,32]
         N = 1
         for s in spatial:
-            N *= s
-
+            N *= s #N=32*32*32=32768
+#x.flatten(2)表示从第2维开始展平,即把(D,H,W)展平为一维,得到(B,C,N)
+#x.transpose(1,2)表示交换第1维和第2维,得到(B,N,C)
         x_seq = x.flatten(2).transpose(1, 2)      # (B, N, C)
         x_seq = self.blocks(x_seq)
         x_seq = self.norm(x_seq)
         return x_seq.transpose(1, 2).reshape(B, C, *spatial).contiguous()
-
+#.contiguous()确保张量的数据在内存中,按照当前维度顺序连续存放
 
 class MHABottleneck3D(nn.Module):
     """标准 MHA 瓶颈；除 attention 外与 MLABottleneck3D 保持一致。"""
@@ -385,6 +459,32 @@ class MHABottleneck3D(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, *spatial = x.shape
+        x_seq = self.blocks(x.flatten(2).transpose(1, 2))
+        x_seq = self.norm(x_seq)
+        return x_seq.transpose(1, 2).reshape(B, C, *spatial).contiguous()
+
+
+class DistanceBiasedMHABottleneck3D(MHABottleneck3D):
+    """MHA bottleneck variant with a cached fixed 3D distance weight."""
+
+    def __init__(self, d_model: int, num_heads: int = 8, num_blocks: int = 2,
+                 mlp_ratio: int = 4, attn_drop: float = 0.0, proj_drop: float = 0.0,
+                 use_moe: bool = True, distance_alpha: float = 0.01):
+        nn.Module.__init__(self)
+        while d_model % num_heads != 0 and num_heads > 1:
+            num_heads //= 2
+        self.blocks = nn.Sequential(*[
+            MHATransformerBlock(d_model, num_heads, mlp_ratio, attn_drop, proj_drop, use_moe=use_moe)
+            for _ in range(num_blocks)
+        ])
+        self.norm = nn.LayerNorm(d_model)
+        for block in self.blocks:
+            block.attn = DistanceBiasedSelfAttention(d_model, num_heads, distance_alpha, attn_drop)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, *spatial = x.shape
+        for block in self.blocks:
+            block.attn.set_spatial_shape(spatial)
         x_seq = self.blocks(x.flatten(2).transpose(1, 2))
         x_seq = self.norm(x_seq)
         return x_seq.transpose(1, 2).reshape(B, C, *spatial).contiguous()
@@ -443,8 +543,12 @@ class MLAUNetBot3D(PlainConvUNet):
             d_bot, mla_num_heads, mla_num_blocks, mla_compression_ratio, mla_mlp_ratio,
             use_moe=mla_use_moe,
         )
+#这三行是把encoder-MLA瓶颈-decoder连起来的;
+#建立一个类class MLAUNetBot3D:,外面net=MLAUNetBot3D(...),net.forward(x)就会调用这个forward方法,把x传给encoder,再传给MLA瓶颈,再传给decoder,最后返回输出
+#类内部写的self就是指代net这个对象,所以self.encoder就是net.encoder,
 
     def forward(self, x: torch.Tensor):
+        #skips是一个列表,存放encoder每一层的输出,最后一层的输出经过MLA瓶颈处理后再传给decoder,decoder的输入是skips
         skips = self.encoder(x)
         skips[-1] = self.mla_bot(skips[-1])
         return self.decoder(skips)
@@ -458,9 +562,13 @@ class DWSepConv3d(nn.Module):
     """
     3D Depthwise Separable Conv：depthwise (groups=C_in) + pointwise (1×1×1)。
 
-    外部接口与 nn.Conv3d 完全相同，可直接替换。
-    参数量：k³·C_in + C_in·C_out  vs 标准 k³·C_in·C_out
-    C 足够大时参数显著减少，同等预算下支持更大卷积核（更大感受野）。
+    使用本类的实验配置：
+    1. nnUNetTrainer_DWSep7
+       用于考察大核深度可分离卷积方案；相对普通 U-Net 同时改变了卷积
+       分解方式和核大小，不能仅凭该对比把效果归因于“大核”。
+    2. nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV4
+    3. nnUNetTrainer_MLAUNet_MoE_DW7_SizeOversampleV5
+
     """
 
     def __init__(
@@ -478,7 +586,7 @@ class DWSepConv3d(nn.Module):
         dtype=None,
     ):
         super().__init__()
-        factory = {}
+        factory = {}  #factory是装参数的字典,把device和dtype放进去,
         if device is not None:
             factory['device'] = device
         if dtype is not None:
@@ -490,6 +598,9 @@ class DWSepConv3d(nn.Module):
             groups=in_channels, bias=False,
             padding_mode=padding_mode, **factory,
         )
+        #dw是逐通道的空间卷积
+        #pw是1x1x1的逐点卷积,把dw的输出通道数变为out_channels
+        #**factory表示把字典的设置展开作为参数传进去;
         self.pw = nn.Conv3d(in_channels, out_channels, 1, bias=bias, **factory)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -507,6 +618,7 @@ def _replace_encoder_conv3d_with_dw_sep(module: nn.Module, dw_kernel_size: int =
       - stride 保持原值（保留下采样语义）
     """
     for name, child in module.named_children():
+        #.named_children()返回一个迭代器,每次迭代返回一个(name, child)元组,name是子模块的名字,child是子模块本身
         if isinstance(child, nn.Conv3d):
             orig_k = child.kernel_size          # tuple, e.g. (3,3,3) 或 (1,3,3)
             if all(k == 1 for k in orig_k):     # 1×1×1：跳过
@@ -514,13 +626,18 @@ def _replace_encoder_conv3d_with_dw_sep(module: nn.Module, dw_kernel_size: int =
             # 只扩大空间维度（原来 >= 3 的维度），保留各向异性中的 1
             new_k       = tuple(dw_kernel_size if k >= 3 else k for k in orig_k)
             new_padding = tuple((k - 1) // 2    for k in new_k)
+
+#setattr(要修改的东西,"属性名称",新的值),这个是python内置函数
+#类继承nn.Module,那么当初始化执行:self.conv=nn.Conv3d(...)
+#PyTorch会把他们自动登记到内部的_modules字典,相当于一个部件表;block._modules={"conv":nn.Conv3d(...)}
+#
             setattr(module, name, DWSepConv3d(
                 in_channels=child.in_channels,
                 out_channels=child.out_channels,
                 kernel_size=new_k,
-                stride=child.stride,
-                padding=new_padding,
-                dilation=child.dilation,
+                stride=child.stride,  #type: ignore
+                padding=new_padding,#type:ignore
+                dilation=child.dilation,#type: ignore
                 bias=child.bias is not None,
                 padding_mode=child.padding_mode,
             ))
@@ -570,10 +687,13 @@ class IBConvBlock3D(nn.Module):
         return x + residual
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        #impl是implementation的缩写,表示"具体实现",
         if self.use_checkpoint:
-            return torch.utils.checkpoint.checkpoint(
+#torch.utils.checkpoint.checkpoint()是指定这段计算少保留一部分中间结果,反向传播需要时再重新计算
+#可以减少显存占用,额外做一些计算,训练可能变慢;
+            return torch.utils.checkpoint.checkpoint(  #type:ignore
                 self._forward_impl, x, use_reentrant=False
-            )
+            )  #type:ignore
         return self._forward_impl(x)
 
 
@@ -593,9 +713,9 @@ def _replace_cdnr_with_ib(module: nn.Module,
                 setattr(module, name, IBConvBlock3D(
                     in_channels=conv.in_channels,
                     out_channels=conv.out_channels,
-                    kernel_size=ib_kernel_size,
-                    exp_r=exp_r,
-                    channels_per_group=channels_per_group,
+                    kernel_size=ib_kernel_size,#新卷积块的空间卷积核默认用7x7x7
+                    exp_r=exp_r,#控制新块中间通道的扩展倍数
+                    channels_per_group=channels_per_group,#每组一个输入通道,
                     use_checkpoint=use_checkpoint,
                 ))
             # stride=2: 保持原样

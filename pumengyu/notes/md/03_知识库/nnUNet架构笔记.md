@@ -1,8 +1,5 @@
 # nnUNet 网络架构笔记（PlainConvUNet + UMambaBot3D）
 
-
-#### nnUNet 网络架构笔记（PlainConvUNet + UMambaBot3D）
-
 > 源码位置：
 > - `dynamic_network_architectures/architectures/unet.py` → `PlainConvUNet`
 > - `dynamic_network_architectures/building_blocks/plain_conv_encoder.py` → `PlainConvEncoder`
@@ -191,5 +188,16 @@ def forward(self, x):
    （deep_supervision=True 时返回多尺度列表，推理取第 0 个）
 ```
 
-
 ---
+
+## 特征归一化：BN、IN、LN 与本仓库实现
+
+对 `[B,C,D,H,W]` 特征图，`BatchNorm3d` 每通道跨 batch 和空间位置统计；`InstanceNorm3d` 每个样本、每个通道只跨 `D,H,W` 统计。`LayerNorm` 的统计维度取决于传入的 `normalized_shape`：MLA 将三维特征展成 token 后，对每个 token 的通道维做 LN，不能一概写成对整张特征图的 `C,D,H,W` 求统计。
+
+| 实现位置 | 实际归一化 | 依据 |
+|---|---|---|
+| nnU-Net 默认卷积块 | `InstanceNorm3d`，由 plans 中的 `norm_op` 决定 | `dynamic_network_architectures` 的块配置与 `plans.json` |
+| 本仓库 MLA bottleneck | token 通道维的 `LayerNorm` | `pumengyu/architectures/mla_unetr.py` 的 MLA / Transformer block |
+| 本仓库 MedNeXt-L | 每通道一组的 `GroupNorm` | `pumengyu/architectures/mednext.py`；详见 [MedNeXt 架构](MedNeXt架构.md) |
+
+这三处的统计对象不同，不能把“用了 LN/IN/GN”本身当成性能差异的单组件解释。输入 CT/MRI 的强度归一化属于预处理，见 [nnU-Net 流水线](nnUNet_pipeline.md)。

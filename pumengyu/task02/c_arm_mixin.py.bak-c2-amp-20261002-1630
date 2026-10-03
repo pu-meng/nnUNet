@@ -1,0 +1,694 @@
+"""Trainable-scope arms for Task 02 Stage-2: C1 (frozen encoder) and C2 (LoRA).
+
+NEW FILE. Nothing in here changes the frozen Task 02 protocol: it only narrows
+*which parameters the optimizer sees*. The SHA-checked source checkpoint, the
+K=3 support manifest, the training seed, the PolyLR schedule, the 300 epochs x
+250 updates budget, the HCC-only update rule and the dual-domain checkpoint
+selection all come unchanged from
+``pumengyu.task02.stage2_mixin.Task02Stage2Mixin``.
+
+Why the arm is applied inside ``_task02_load_source_weights_strict``
+-------------------------------------------------------------------
+``Task02Stage2Mixin.on_train_start`` runs, in this order::
+
+    super().on_train_start()                    # builds the network
+    self._task02_load_source_weights_strict()   # strict SHA-checked load
+    self.optimizer, self.lr_scheduler = self.configure_optimizers()
+
+Applying the arm from inside the middle call is what keeps the strict load
+valid: the frozen source checkpoint contains exactly the parameter names of the
+plain (un-wrapped) network, so injecting LoRA modules or flipping
+``requires_grad`` *after* ``strict=True`` has already succeeded cannot break it.
+The optimizer is rebuilt immediately afterwards by the existing mixin, so the
+narrowed parameter set is what actually trains.
+
+Why ``configure_optimizers`` is overridden
+------------------------------------------
+``nnUNetTrainer.configure_optimizers`` hands *every* parameter -- including
+``requires_grad=False`` ones -- to SGD. This repository already overrides that
+pattern in ``nnUNetTrainer_MedNeXt_MLA_HCCAdapter701020``; this module repeats
+it and keeps every hyper-parameter identical to
+``nnUNetTrainer.configure_optimizers`` (SGD, momentum 0.99, nesterov=True,
+``weight_decay=self.weight_decay`` == 3e-5) and to the Task 02 protocol
+(``PolyLRScheduler`` over ``self.initial_lr`` == 1e-3 and
+``self.num_epochs`` == 300).
+
+Hard requirement discovered by reading the architecture
+-------------------------------------------------------
+``MedNeXt`` runs every encoder block, decoder block, up block and out block
+through *reentrant* ``torch.utils.checkpoint`` and passes
+``self.dummy_tensor`` -- a 1-element ``nn.Parameter(requires_grad=True)`` -- as
+the argument that keeps the reentrant graph alive. See
+``nnunet_mednext/network_architecture/mednextv1/MedNextV1.py::
+MedNeXt.iterative_checkpoint``, whose docstring states it exists precisely to
+bypass the "checkpoint with no grad-requiring inputs" problem
+(https://discuss.pytorch.org/t/checkpoint-with-no-grad-requiring-inputs-problem/19117/9).
+
+Measured consequence: if ``dummy_tensor.requires_grad`` is False, PyTorch emits
+``None of the inputs have requires_grad=True. Gradients will be None`` and the
+returned tensor carries **no** autograd graph, which silently detaches whole
+downstream branches (including trainable decoder and head parameters). Both arms
+therefore leave ``dummy_tensor`` untouched at ``requires_grad=True``. It is
+never read inside the forward pass, so it receives no gradient and is never
+updated; it contributes exactly 1 element to the reported trainable count.
+
+Single-process only
+-------------------
+The arm is applied after ``nnUNetTrainer.initialize()``; with DDP that call
+happens before ``DDP(...)`` is constructed, so injected / re-enabled parameters
+would never be all-reduced. Both arms raise a clear error on ``is_ddp`` and must
+be launched with ``-num_gpus 1``.
+"""
+
+from __future__ import annotations
+
+import functools
+import json
+import math
+from pathlib import Path
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from nnunetv2.training.lr_scheduler.polylr import PolyLRScheduler
+
+
+# ---------------------------------------------------------------------- #
+# Region map (top-level module names of MedNeXtMHABot, read from the live
+# module tree of pumengyu.architectures.mednext.build_mednext_large_mha)
+# ---------------------------------------------------------------------- #
+ENCODER_PREFIXES: tuple[str, ...] = ("stem", "enc_block_", "down_", "bottleneck", "mla_bot")
+DECODER_PREFIXES: tuple[str, ...] = ("up_", "dec_block_")
+HEAD_PREFIXES: tuple[str, ...] = ("out_",)
+
+# 1-element reentrant-checkpoint sentinel. MUST stay requires_grad=True.
+CHECKPOINT_SENTINEL: str = "dummy_tensor"
+
+DEFAULT_LORA_RANK: int = 8
+DEFAULT_LORA_SCALE: float = 1.0
+
+# Leaf attribute names that are deliberately NOT wrapped.
+#
+# ``router`` is the MoE gating linear (``MoEFFN.router: nn.Linear(d_model, 4)``).
+# It is read out by a hard row-wise ``torch.topk``; a low-rank perturbation of
+# its logits can only flip an assignment across a measure-zero decision
+# boundary, so its LoRA ``B`` receives **exactly zero gradient** (measured on
+# the real network: both routers' ``lora_B`` had ``grad.abs().sum() == 0`` in
+# the very first backward pass). Wrapping a layer that can never be adapted by
+# gradient descent would only add permanently untrained parameters, so the MoE
+# router is excluded explicitly and recorded as ``lora_excluded_layers`` -- it
+# is never dropped silently.
+LORA_EXCLUDED_LEAF_NAMES: tuple[str, ...] = ("router",)
+
+
+def parameter_region(name: str) -> str:
+    """Map a parameter name to ``encoder`` / ``decoder`` / ``head`` / ... ."""
+    top = name.split(".", 1)[0]
+    if top == CHECKPOINT_SENTINEL:
+        return "checkpoint_sentinel"
+    if top.startswith(ENCODER_PREFIXES):
+        return "encoder"
+    if top.startswith(DECODER_PREFIXES):
+        return "decoder"
+    if top.startswith(HEAD_PREFIXES):
+        return "head"
+    return "other"
+
+
+# ---------------------------------------------------------------------- #
+# Runtime compatibility shim: reentrant checkpoint + fully frozen blocks
+# ---------------------------------------------------------------------- #
+# Measured problem (torch 2.3.0+cu121), reproduced by ``verify_c_arms``:
+#
+#   MedNeXt wraps every encoder/decoder/up/out block in *reentrant*
+#   ``torch.utils.checkpoint.checkpoint`` and passes ``dummy_tensor`` so that
+#   ``check_backward_validity`` is satisfied. The checkpointed tensor therefore
+#   always carries a ``CheckpointFunctionBackward`` node, even when the wrapped
+#   block is completely frozen and its real inputs require no gradient.
+#
+#   During the backward pass, ``torch/utils/checkpoint.py:316`` re-runs such a
+#   block and raises::
+#
+#       RuntimeError: none of output has requires_grad=True,
+#       this checkpoint() is not necessary
+#
+#   which aborts C1 (frozen encoder) on the very first optimizer step. Freezing
+#   ``dummy_tensor`` instead only moves the problem: ``check_backward_validity``
+#   then warns "None of the inputs have requires_grad=True. Gradients will be
+#   None", the checkpoint returns a tensor with no ``grad_fn``, and the
+#   *trainable* decoder/head parameters behind it silently lose their
+#   gradients.
+#
+# Fix: for a checkpoint whose callable owns no trainable parameter and whose
+# real inputs require no gradient, calling the function directly is exactly
+# equivalent (there is nothing to recompute for the backward pass) and is
+# strictly cheaper, because without a grad-requiring input autograd records no
+# activations at all. The shim is installed process-locally at arm-application
+# time, never touches the stock implementation for any other call, and is
+# idempotent. No file in the repository is modified.
+CHECKPOINT_SPECIFIC_KWARGS = frozenset(
+    {"use_reentrant", "preserve_rng_state", "context_fn", "determinism_check", "debug"}
+)
+_CHECKPOINT_SHIM_MARKER = "_task02_c_arm_frozen_checkpoint_bypass"
+_IGNORED_GRAD_INPUT_IDS: set[int] = set()
+_IGNORED_GRAD_INPUT_REFS: list = []
+
+
+def register_gradient_ignored_tensor(tensor) -> None:
+    """Register a tensor that is passed to ``checkpoint`` but never read.
+
+    MedNeXt's ``dummy_tensor`` only exists to satisfy
+    ``check_backward_validity``; it cannot carry a real gradient path. The
+    bypass decision must not treat it as a live gradient input.
+    """
+    if isinstance(tensor, torch.Tensor):
+        _IGNORED_GRAD_INPUT_REFS.append(tensor)
+        _IGNORED_GRAD_INPUT_IDS.add(id(tensor))
+
+
+def _checkpoint_callable_module(function):
+    owner = getattr(function, "__self__", None)
+    if isinstance(owner, nn.Module):
+        return owner
+    if isinstance(function, nn.Module):
+        return function
+    return None
+
+
+def _has_trainable_parameters(module: nn.Module) -> bool:
+    return any(param.requires_grad for param in module.parameters())
+
+
+def _has_real_gradient_input(args) -> bool:
+    return any(
+        isinstance(arg, torch.Tensor)
+        and arg.requires_grad
+        and id(arg) not in _IGNORED_GRAD_INPUT_IDS
+        for arg in args
+    )
+
+
+def should_bypass_checkpoint(function, args) -> bool:
+    """True when checkpointing this call can neither help nor succeed."""
+    module = _checkpoint_callable_module(function)
+    if module is None:
+        return False  # unknown callable: keep the stock implementation
+    if _has_trainable_parameters(module):
+        return False  # trainable region: keep real checkpointing
+    return not _has_real_gradient_input(args)
+
+
+def install_frozen_checkpoint_bypass() -> bool:
+    """Patch ``torch.utils.checkpoint.checkpoint`` in this process only.
+
+    Returns True when the shim is (already) in place. See the block comment
+    above for the measured failure it works around.
+    """
+    checkpoint_module = torch.utils.checkpoint
+    current = checkpoint_module.checkpoint
+    if getattr(current, _CHECKPOINT_SHIM_MARKER, False):
+        return True
+    stock = current
+
+    @functools.wraps(stock)
+    def checkpoint_with_frozen_bypass(function, *args, **kwargs):
+        if should_bypass_checkpoint(function, args):
+            passthrough = {k: v for k, v in kwargs.items() if k not in CHECKPOINT_SPECIFIC_KWARGS}
+            return function(*args, **passthrough)
+        return stock(function, *args, **kwargs)
+
+    setattr(checkpoint_with_frozen_bypass, _CHECKPOINT_SHIM_MARKER, True)
+    checkpoint_module.checkpoint = checkpoint_with_frozen_bypass
+    return True
+
+
+def prepare_network_runtime(network: nn.Module) -> dict:
+    """Register the checkpoint sentinel and install the compatibility shim."""
+    register_gradient_ignored_tensor(getattr(network, CHECKPOINT_SENTINEL, None))
+    installed = install_frozen_checkpoint_bypass()
+    return {
+        "checkpoint_bypass_installed": installed,
+        "gradient_ignored_tensors": len(_IGNORED_GRAD_INPUT_REFS),
+    }
+
+
+
+# ---------------------------------------------------------------------- #
+# Minimal LoRA (no external dependency: no peft, no loralib)
+# ---------------------------------------------------------------------- #
+class LoRABypass(nn.Module):
+    """Rank-r trainable bypass around a frozen Conv3d / ConvTranspose3d / Linear.
+
+    ::
+
+        forward(x) = base(x) + scale * (B x A)(x)
+
+    ``delta = B @ A`` is materialised explicitly (``B`` is
+    ``(rows, r)`` and ``A`` is ``(r,) + base.weight.shape[1:]``, so
+    ``delta`` has exactly ``base.weight.shape``). One code path therefore covers
+
+    * depthwise / grouped convolutions (``groups == in_channels``) -- MedNeXt's
+      ``conv1`` in every block, and the depthwise ``up_*.conv1`` transposed convs,
+    * ``ConvTranspose3d``,
+    * strided and dilated convolutions,
+    * ``nn.Linear`` (MHA projections and the MoE expert/router linears),
+
+    which the usual "two stacked convs" LoRA trick cannot do: it needs
+    ``out_channels`` to be divisible by ``groups`` and breaks for
+    ``groups > rank``.
+
+    Materialising ``delta`` costs ``numel(base.weight)`` multiply-adds per
+    forward (at most 2.1 M for the widest MedNeXt-L layer, computed in fp32 and
+    cast back), which is negligible next to the convolution it perturbs.
+
+    ``lora_A`` is drawn from ``N(0, 1/fan_in)`` and ``lora_B`` is exactly zero,
+    so right after injection ``delta == 0`` and the module reproduces the frozen
+    base *bit for bit*. That is what makes the frozen source weights the true
+    starting point of both arms.
+    """
+
+    def __init__(self, base: nn.Module, rank: int, scale: float = DEFAULT_LORA_SCALE):
+        super().__init__()
+        if not isinstance(base, (nn.Conv3d, nn.ConvTranspose3d, nn.Linear)):
+            raise TypeError(
+                f"LoRABypass supports Conv3d/ConvTranspose3d/Linear, got {type(base).__name__}"
+            )
+        weight = base.weight
+        rows = int(weight.shape[0])
+        cols = int(math.prod(int(v) for v in weight.shape[1:]))
+        self.rank = int(min(int(rank), rows, cols))
+        if self.rank < 1:
+            raise ValueError(f"degenerate LoRA rank for {type(base).__name__}{tuple(weight.shape)}")
+        self.scale = float(scale)
+        self.base = base
+        self._delta_shape = tuple(int(v) for v in weight.shape)
+        self.lora_A = nn.Parameter(torch.zeros((self.rank,) + self._delta_shape[1:]))
+        self.lora_B = nn.Parameter(torch.zeros((rows, self.rank)))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        fan_in = max(1, int(math.prod(self.lora_A.shape[1:])))
+        with torch.no_grad():
+            self.lora_A.normal_(0.0, 1.0 / math.sqrt(fan_in))
+            self.lora_B.zero_()
+
+    def delta_weight(self) -> torch.Tensor:
+        """``B @ A`` as a weight tensor with the shape of ``base.weight``."""
+        flat = torch.mm(
+            self.lora_B.float(), self.lora_A.reshape(self.rank, -1).float()
+        ).reshape(self._delta_shape)
+        return flat.to(self.lora_A.dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        module = self.base
+        out = module(x)
+        delta = self.delta_weight().to(x.dtype)
+        if isinstance(module, nn.Linear):
+            adapted = F.linear(x, delta)
+        elif isinstance(module, nn.Conv3d):
+            adapted = F.conv3d(
+                x, delta, None, module.stride, module.padding, module.dilation, module.groups
+            )
+        else:  # nn.ConvTranspose3d
+            adapted = F.conv_transpose3d(
+                x,
+                delta,
+                None,
+                module.stride,
+                module.padding,
+                module.output_padding,
+                module.groups,
+                module.dilation,
+            )
+        return out + self.scale * adapted
+
+
+# ---------------------------------------------------------------------- #
+# Arm implementations (pure functions over a built network)
+# ---------------------------------------------------------------------- #
+def collect_trainable_stats(network: nn.Module) -> dict:
+    total = 0
+    trainable = 0
+    per_region: dict[str, dict[str, int]] = {}
+    for name, param in network.named_parameters():
+        region = parameter_region(name)
+        entry = per_region.setdefault(
+            region,
+            {"tensors": 0, "params": 0, "trainable_tensors": 0, "trainable_params": 0},
+        )
+        count = int(param.numel())
+        entry["tensors"] += 1
+        entry["params"] += count
+        total += count
+        if param.requires_grad:
+            entry["trainable_tensors"] += 1
+            entry["trainable_params"] += count
+            trainable += count
+    return {
+        "total_params": total,
+        "trainable_params": trainable,
+        "frozen_params": total - trainable,
+        "trainable_ratio": (trainable / total) if total else 0.0,
+        "per_region": per_region,
+    }
+
+
+def assert_region_frozen(network: nn.Module, regions) -> None:
+    wanted = set(regions)
+    offenders = [
+        name
+        for name, param in network.named_parameters()
+        if parameter_region(name) in wanted and param.requires_grad
+    ]
+    if offenders:
+        raise RuntimeError(
+            f"Task02 C arm invariant violated: {sorted(wanted)} parameters are still trainable: "
+            f"{offenders[:8]}{' ...' if len(offenders) > 8 else ''} ({len(offenders)} total)"
+        )
+
+
+def _conv_linear_modules(network: nn.Module, regions):
+    wanted = set(regions)
+    for name, module in network.named_modules():
+        if isinstance(module, (nn.Conv3d, nn.ConvTranspose3d, nn.Linear)) and parameter_region(name) in wanted:
+            yield name, module
+
+
+def _module_shape(module) -> tuple[int, int]:
+    weight = module.weight
+    return int(weight.shape[0]), int(math.prod(int(v) for v in weight.shape[1:]))
+
+
+def _is_excluded(name: str, exclude_leaf_names) -> bool:
+    return name.rsplit(".", 1)[-1] in set(exclude_leaf_names)
+
+
+def describe_lora_targets(
+    network: nn.Module,
+    regions=("encoder", "decoder"),
+    exclude_leaf_names=LORA_EXCLUDED_LEAF_NAMES,
+) -> list[tuple[str, int, int]]:
+    """(name, rows, cols) of every Conv3d/ConvTranspose3d/Linear that WILL be wrapped."""
+    return [
+        (name,) + _module_shape(module)
+        for name, module in _conv_linear_modules(network, regions)
+        if not _is_excluded(name, exclude_leaf_names)
+    ]
+
+
+def describe_excluded_lora_candidates(
+    network: nn.Module,
+    regions=("encoder", "decoder"),
+    exclude_leaf_names=LORA_EXCLUDED_LEAF_NAMES,
+) -> list[dict]:
+    """Candidates deliberately left un-adapted, with shape and reason (never silent)."""
+    excluded = []
+    for name, module in _conv_linear_modules(network, regions):
+        if _is_excluded(name, exclude_leaf_names):
+            rows, cols = _module_shape(module)
+            excluded.append(
+                {
+                    "layer": name,
+                    "rows": rows,
+                    "cols": cols,
+                    "reason": (
+                        "MoE gating linear read out by a hard torch.topk; a low-rank "
+                        "perturbation of its logits cannot receive a gradient "
+                        "(measured lora_B grad == 0), so it is excluded instead of adding "
+                        "permanently untrained LoRA parameters."
+                    ),
+                }
+            )
+    return excluded
+
+
+def apply_frozen_encoder_arm(network: nn.Module, trainable_regions=("decoder", "head")) -> dict:
+    """C1: train only the decoder and the segmentation heads.
+
+    Every encoder parameter (``stem``, ``enc_block_*``, ``down_*``,
+    ``bottleneck``, ``mla_bot``) is set to ``requires_grad=False`` and asserted
+    to be frozen. ``dummy_tensor`` is deliberately excluded -- see the module
+    docstring.
+    """
+    keep = set(trainable_regions)
+    for name, param in network.named_parameters():
+        if name == CHECKPOINT_SENTINEL:
+            param.requires_grad_(True)
+            continue
+        param.requires_grad_(parameter_region(name) in keep)
+
+    assert_region_frozen(network, [r for r in ("encoder", "decoder", "head") if r not in keep])
+
+    stats = collect_trainable_stats(network)
+    stats.update(prepare_network_runtime(network))
+    stats["arm"] = "c1_frozen_encoder"
+    stats["trainable_regions"] = sorted(keep)
+    stats["trainable_prefixes"] = DECODER_PREFIXES + HEAD_PREFIXES
+    stats["checkpoint_sentinel_kept_trainable"] = CHECKPOINT_SENTINEL
+    return stats
+
+
+def apply_lora_arm(
+    network: nn.Module,
+    rank: int = DEFAULT_LORA_RANK,
+    scale: float = DEFAULT_LORA_SCALE,
+    regions=("encoder", "decoder"),
+    train_seg_heads: bool = False,
+    exclude_leaf_names=LORA_EXCLUDED_LEAF_NAMES,
+) -> dict:
+    """C2: freeze the whole backbone, insert rank-``rank`` LoRA bypasses.
+
+    Every ``nn.Conv3d`` / ``nn.ConvTranspose3d`` / ``nn.Linear`` under the
+    encoder and decoder prefixes is wrapped, except the MoE gating ``router``
+    linears (see ``LORA_EXCLUDED_LEAF_NAMES``: they are read out by a hard
+    ``topk`` and provably receive zero gradient). Every other parameter -- base
+    convolutions, biases, GroupNorm/LayerNorm affines, the MoE ``expert_bias``
+    buffers and the 5 deep-supervision heads (``out_*``, 2 991 parameters) --
+    stays frozen. This is the pure "LoRA only, frozen backbone" arm: the only
+    parameters that can ever move are the LoRA bypass tensors.
+    """
+    excluded = describe_excluded_lora_candidates(network, regions, exclude_leaf_names)
+    discovered = describe_lora_targets(network, regions, exclude_leaf_names)
+    wrapped: list[str] = []
+    ranks: dict[str, int] = {}
+    for name, _, _ in discovered:
+        parent_path, _, attr = name.rpartition(".")
+        parent = network.get_submodule(parent_path) if parent_path else network
+        base = getattr(parent, attr)
+        bypass = LoRABypass(base, rank=rank, scale=scale)
+        setattr(parent, attr, bypass)
+        wrapped.append(name)
+        ranks[name] = bypass.rank
+    if len(wrapped) != len(discovered):
+        raise RuntimeError(
+            f"LoRA wrapping mismatch: discovered={len(discovered)} wrapped={len(wrapped)}"
+        )
+
+    # Freeze the whole model, then re-enable only the bypasses (+ heads if asked).
+    for param in network.parameters():
+        param.requires_grad_(False)
+    for name, param in network.named_parameters():
+        if name == CHECKPOINT_SENTINEL:
+            param.requires_grad_(True)
+        elif name.endswith(".lora_A") or name.endswith(".lora_B"):
+            param.requires_grad_(True)
+        elif train_seg_heads and parameter_region(name) == "head":
+            param.requires_grad_(True)
+
+    # No base weight may be trainable; only the bypass tensors, the sentinel and
+    # (only if explicitly requested) the segmentation heads may carry gradients.
+    for name, param in network.named_parameters():
+        if name.endswith(".lora_A") or name.endswith(".lora_B"):
+            continue
+        if name == CHECKPOINT_SENTINEL:
+            continue
+        if train_seg_heads and parameter_region(name) == "head":
+            continue
+        if param.requires_grad:
+            raise RuntimeError(f"Task02 C2 invariant violated: base parameter still trainable: {name}")
+    if not train_seg_heads:
+        # Pure "LoRA only" arm: the segmentation heads are part of the frozen model.
+        assert_region_frozen(network, ["head"])
+
+    stats = collect_trainable_stats(network)
+    stats.update(prepare_network_runtime(network))
+    stats["arm"] = "c2_lora"
+    stats["lora_rank"] = int(rank)
+    stats["lora_scale"] = float(scale)
+    stats["lora_regions"] = sorted(set(regions))
+    stats["lora_wrapped_layers"] = len(wrapped)
+    stats["lora_wrapped_targets"] = wrapped
+    stats["lora_effective_ranks"] = ranks
+    # A layer's matrix can only carry rank min(rows, cols); ``LoRABypass`` sets
+    # exactly that, so these entries are shape limits, never silent truncation.
+    stats["lora_rank_shape_limited_layers"] = sorted(
+        name for name, value in ranks.items() if value < int(rank)
+    )
+    stats["train_seg_heads"] = bool(train_seg_heads)
+    stats["lora_excluded_layers"] = excluded
+    stats["lora_excluded_leaf_names"] = list(exclude_leaf_names)
+    stats["lora_candidate_layers"] = len(discovered) + len(excluded)
+    stats["trainable_prefixes"] = sorted(set(regions)) + (["head"] if train_seg_heads else [])
+    stats["checkpoint_sentinel_kept_trainable"] = CHECKPOINT_SENTINEL
+    return stats
+
+
+# ---------------------------------------------------------------------- #
+# Trainer mixins
+# ---------------------------------------------------------------------- #
+class Task02CScopeMixin:
+    """Shared plumbing: apply one arm, then hand SGD only trainable parameters."""
+
+    C_ARM_NAME: str = "c_arm"
+    C_ARM_DESCRIPTION: str = ""
+
+    # ---- the hook ----------------------------------------------------- #
+    def _c_arm_transform(self, network: nn.Module) -> dict:  # pragma: no cover - abstract
+        raise NotImplementedError
+
+    def _task02_load_source_weights_strict(self):
+        """Run the frozen strict load first, then narrow the trainable scope."""
+        identity = super()._task02_load_source_weights_strict()  # type: ignore[misc]
+        if getattr(self, "_c_arm_applied", False):
+            return identity
+        if self.is_ddp:  # type: ignore[attr-defined]
+            raise RuntimeError(
+                "Task02 C arms must run single-process: the trainable scope is applied after "
+                "nnUNetTrainer.initialize() has already built the optimizer and wrapped the network "
+                "in DDP, so injected/re-enabled parameters would never be all-reduced. "
+                "Launch with -num_gpus 1."
+            )
+        network = self._task02_unwrapped_network()  # type: ignore[attr-defined]
+        stats = self._c_arm_transform(network)
+        self._c_arm_applied = True
+        self._c_arm_stats = stats
+        self._c_arm_log(stats)
+        return identity
+
+    # ---- optimizer ---------------------------------------------------- #
+    def configure_optimizers(self):
+        """SGD over trainable parameters only; otherwise byte-identical to nnUNetTrainer."""
+        trainable = [p for p in self.network.parameters() if p.requires_grad]  # type: ignore[attr-defined]
+        if not trainable:
+            raise RuntimeError(f"Task02 {self.C_ARM_NAME} has no trainable parameters.")
+        optimizer = torch.optim.SGD(
+            trainable,
+            self.initial_lr,  # type: ignore[attr-defined]
+            weight_decay=self.weight_decay,  # type: ignore[attr-defined]
+            momentum=0.99,
+            nesterov=True,
+        )
+        lr_scheduler = PolyLRScheduler(optimizer, self.initial_lr, self.num_epochs)  # type: ignore[attr-defined]
+        return optimizer, lr_scheduler
+
+    # ---- provenance --------------------------------------------------- #
+    def _c_arm_log(self, stats: dict) -> None:
+        detail = ""
+        if stats.get("arm") == "c2_lora":
+            detail = (
+                f" rank={stats['lora_rank']} wrapped_layers={stats['lora_wrapped_layers']}"
+                f" shape_limited={len(stats['lora_rank_shape_limited_layers'])}"
+                f" train_seg_heads={stats['train_seg_heads']}"
+            )
+        self.print_to_log_file(  # type: ignore[attr-defined]
+            f"[{self.C_ARM_NAME}] trainable={stats['trainable_params']:,}/{stats['total_params']:,} "
+            f"({100.0 * stats['trainable_ratio']:.4f}%) frozen={stats['frozen_params']:,}{detail}"
+        )
+
+    def _c_arm_manifest_payload(self) -> dict:
+        stats = dict(getattr(self, "_c_arm_stats", {}) or {})
+        return {
+            "arm": self.C_ARM_NAME,
+            "description": self.C_ARM_DESCRIPTION,
+            "class": type(self).__name__,
+            "applied_after_frozen_source_load": bool(getattr(self, "_c_arm_applied", False)),
+            "checkpoint_sentinel_policy": (
+                f"{CHECKPOINT_SENTINEL} keeps requires_grad=True because MedNeXt reentrant "
+                "torch.utils.checkpoint needs at least one grad-requiring input; it is never "
+                "read in the forward pass, so it receives no gradient. Fully frozen blocks are "
+                "additionally taken off the reentrant-checkpoint path by the process-local "
+                "frozen-checkpoint bypass in pumengyu.task02.c_arm_mixin."
+            ),
+            "trainable": stats.get("trainable_params"),
+            "total": stats.get("total_params"),
+            "trainable_ratio": stats.get("trainable_ratio"),
+            "per_region": stats.get("per_region"),
+            "details": {k: v for k, v in stats.items() if k not in {"per_region"}},
+        }
+
+    def _task02_write_manifest(self, hcc_cases):
+        super()._task02_write_manifest(hcc_cases)  # type: ignore[misc]
+        if self.local_rank != 0:  # type: ignore[attr-defined]
+            return
+        if not getattr(self, "_c_arm_applied", False):
+            self.print_to_log_file(  # type: ignore[attr-defined]
+                f"[{self.C_ARM_NAME}] WARNING: arm was not applied before the manifest was written."
+            )
+            return
+        payload = self._c_arm_manifest_payload()
+        for filename in ("task02_manifest.json", "task02_config.json"):
+            path = Path(self.output_folder) / filename  # type: ignore[attr-defined]
+            try:
+                if not path.is_file():
+                    continue
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data["c_arm"] = payload
+                path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
+            except Exception as exc:  # never let provenance break a long training run
+                self.print_to_log_file(  # type: ignore[attr-defined]
+                    f"[{self.C_ARM_NAME}] WARNING: could not annotate {filename}: {exc!r}"
+                )
+
+
+class Task02C1FrozenEncoderMixin(Task02CScopeMixin):
+    """C1 -- decoder + segmentation head trainable, encoder frozen."""
+
+    C_ARM_NAME = "c1_frozen_encoder"
+    C_ARM_DESCRIPTION = (
+        "Frozen MedNeXt/MHA+MoE encoder (stem, enc_block_*, down_*, bottleneck, mla_bot); "
+        "only the decoder (up_*, dec_block_*) and the deep-supervision heads (out_*) train. "
+        "Everything else (data, K=3 manifest, seed, lr 1e-3, PolyLR, 300x250, HCC-only step, "
+        "checkpoint selection) is identical to nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K03."
+    )
+    C_ARM_TRAINABLE_REGIONS: tuple[str, ...] = ("decoder", "head")
+
+    def _c_arm_transform(self, network: nn.Module) -> dict:
+        return apply_frozen_encoder_arm(
+            network, trainable_regions=self.C_ARM_TRAINABLE_REGIONS
+        )
+
+
+class Task02C2LoRAMixin(Task02CScopeMixin):
+    """C2 -- rank-r LoRA on encoder + decoder Conv/Linear, whole backbone frozen."""
+
+    C_ARM_NAME = "c2_lora"
+    C_ARM_DESCRIPTION = (
+        "Pure LoRA arm. Rank-8 LoRA bypass (x + B@A@x) on every Conv3d/ConvTranspose3d/Linear "
+        "of the encoder (including the MHA projections and the MoE experts of mla_bot) and of the "
+        "decoder; the MoE gating 'router' linears are explicitly excluded because their hard "
+        "top-k readout cannot deliver a gradient. Every other parameter is frozen, including all "
+        "base convolutions, biases, normalization affines and the 5 deep-supervision heads "
+        "(out_*). A is N(0, 1/fan_in) and B is exactly zero, so the arm starts bit-identical to "
+        "the frozen source checkpoint. Everything else (data, K=3 manifest, seed, lr 1e-3, PolyLR, "
+        "300x250, HCC-only step, checkpoint selection) is identical to "
+        "nnUNetTrainer_MedNeXt_MHA_MoE_Task02_HCCOnly_K03."
+    )
+    C_ARM_LORA_RANK: int = DEFAULT_LORA_RANK
+    C_ARM_LORA_SCALE: float = DEFAULT_LORA_SCALE
+    C_ARM_TARGET_REGIONS: tuple[str, ...] = ("encoder", "decoder")
+    # Pure-mechanism arm: the segmentation heads belong to the frozen model.
+    C_ARM_TRAIN_SEG_HEADS: bool = False
+    C_ARM_EXCLUDE_LEAF_NAMES: tuple[str, ...] = LORA_EXCLUDED_LEAF_NAMES
+
+    def _c_arm_transform(self, network: nn.Module) -> dict:
+        return apply_lora_arm(
+            network,
+            rank=self.C_ARM_LORA_RANK,
+            scale=self.C_ARM_LORA_SCALE,
+            regions=self.C_ARM_TARGET_REGIONS,
+            train_seg_heads=self.C_ARM_TRAIN_SEG_HEADS,
+            exclude_leaf_names=self.C_ARM_EXCLUDE_LEAF_NAMES,
+        )

@@ -1387,12 +1387,13 @@ def _gen_viz_pngs_and_cleanup(
     img_dir,       # CT nii.gz 目录（*_0000.nii.gz）
     out_viz_dir,   # PNG 输出根目录，每个 case 建子目录
     min_voxel: int = 20,
-    delete_nii: bool = True,
+    delete_nii: bool = False,
     log_fn=None,   # 可选：print_to_log_file 函数
 ):
     """
     对 pred_folder 内每个 case 的预测 nii.gz 生成 TP/FP/FN 三色叠加 PNG，
-    按 case 分子目录保存到 out_viz_dir，然后删除 nii.gz（保留 summary.json 等其他文件）。
+    按 case 分子目录保存到 out_viz_dir。默认保留预测；只有调用方显式设置
+    delete_nii=True 时才删除 nii.gz。
     """
     import shutil
     import nibabel as nib

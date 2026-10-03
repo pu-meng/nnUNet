@@ -259,3 +259,13 @@ export nnUNet_results="/data/nnUNet_results"
 
 
 ---
+
+## 预处理与增强：保留的源码线索
+
+以下是核对当前源码时常用的流程线索。具体参数以 trainer 和 `plans.json` 为准：
+
+1. `experiment_planning/dataset_fingerprint/fingerprint_extractor.py` 的 `DatasetFingerprintExtractor` 先统计病例 spacing、裁剪后 shape、前景强度分布和裁剪比例，写出 `dataset_fingerprint.json`。
+2. `preprocessing/preprocessors/default_preprocessor.py` 的 `run_case_npy()` 对每例依次做轴重排、`crop_to_nonzero()`、归一化、重采样，再按标签采样前景坐标。裁剪框和裁剪前形状留在 `properties`，供推理结果还原。
+3. **归一化在重采样之前。** CT 的裁剪阈值与均值/方差来自训练数据指纹；其他模态是否按病例做 Z-score、是否使用非零 mask，由归一化方案和 plans 决定。看 `preprocessing/normalization/default_normalization_schemes.py`，不要照抄旧笔记中的固定数字。
+4. 预处理后的图像、标签和属性由 `run_case_save()` 写入缓存；训练加载器再从缓存裁 patch。前景坐标属于病例属性，不是每次随机从全体体素扫描。
+5. 在线增强从 `training/nnUNetTrainer/nnUNetTrainer.py` 的 `get_training_transforms()` 开始，空间变换、强度变换和镜像的真实参数应从当前 trainer、plans 和 transform 类一起核对；旧 `single_segmentation` 的 MONAI 对齐表不能证明当前两条流水线等价。

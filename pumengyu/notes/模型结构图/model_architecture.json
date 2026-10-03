@@ -5,11 +5,9 @@
   "bottleneck_shape": "[B,512,8,8,8]",
   "token_shape": "[B,512,512]",
   "outputs": {
-    "png": "model_architecture.png",
     "svg": "model_architecture.svg",
-    "detail_png": "model_attention_moe_details.png",
+    "bottleneck_svg": "model_bottleneck_blocks.svg",
     "detail_svg": "model_attention_moe_details.svg",
-    "pipeline_png": "model_pipeline.png",
     "pipeline_svg": "model_pipeline.svg",
     "markdown": "model_architecture.md",
     "json": "model_architecture.json"
@@ -62,7 +60,6 @@
   },
   "pipeline_figure": {
     "command": "~/model.sh pipeline",
-    "png": "model_pipeline.png",
     "svg": "model_pipeline.svg",
     "training": "case list → DefaultPreprocessor → patch/augmentation → forward → deep-supervision Dice+CE → backward/optimizer",
     "inference": "raw case → same preprocessor → sliding window + Gaussian fusion + optional mirror → export/resample/label"

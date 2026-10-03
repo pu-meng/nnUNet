@@ -9,8 +9,17 @@ PYTHON_BIN="/home/PuMengYu/anaconda3/envs/medseg/bin/python"
 AUDIT_SCRIPT="${REPO_ROOT}/pumengyu/tools/model_audit/trace_mednext_mha_moe.py"
 GRAPH_SCRIPT="${REPO_ROOT}/pumengyu/tools/model_audit/draw_model_architecture.py"
 PIPELINE_SCRIPT="${REPO_ROOT}/pumengyu/tools/model_audit/draw_model_pipeline.py"
-OUTPUT_DIR="${REPO_ROOT}/pumengyu/tools/model_audit/output"
+OUTPUT_DIR="${REPO_ROOT}/pumengyu/notes/模型结构图"
 ACTION="${1:-help}"
+EXPORT_ARGS=()
+if (( $# > 1 )); then
+    if [[ $# -eq 2 && "$2" == "--png" && ( "$ACTION" == "graph" || "$ACTION" == "pipeline" ) ]]; then
+        EXPORT_ARGS=(--png)
+    else
+        echo "仅 graph 和 pipeline 支持可选参数 --png" >&2
+        exit 2
+    fi
+fi
 
 case "${ACTION}" in
     check)
@@ -37,16 +46,18 @@ PY
         echo "详细结果: ${OUTPUT_DIR}"
         ;;
     graph)
-        "${PYTHON_BIN}" "${GRAPH_SCRIPT}" --output-dir "${OUTPUT_DIR}" >/dev/null
+        "${PYTHON_BIN}" "${GRAPH_SCRIPT}" --output-dir "${OUTPUT_DIR}" "${EXPORT_ARGS[@]}" >/dev/null
         echo "模型结构图完成"
-        echo "图像: ${OUTPUT_DIR}/model_architecture.png"
-        echo "矢量图: ${OUTPUT_DIR}/model_architecture.svg"
+        echo "结构总览: ${OUTPUT_DIR}/model_architecture.svg"
+        echo "双 Block 展开: ${OUTPUT_DIR}/model_bottleneck_blocks.svg"
+        echo "MHA/MoE 细节: ${OUTPUT_DIR}/model_attention_moe_details.svg"
+        if (( ${#EXPORT_ARGS[@]} )); then echo "已同时导出 300 DPI PNG"; fi
         ;;
     pipeline)
-        "${PYTHON_BIN}" "${PIPELINE_SCRIPT}" --output-dir "${OUTPUT_DIR}" >/dev/null
+        "${PYTHON_BIN}" "${PIPELINE_SCRIPT}" --output-dir "${OUTPUT_DIR}" "${EXPORT_ARGS[@]}" >/dev/null
         echo "case-训练-推理流程图完成"
-        echo "图像: ${OUTPUT_DIR}/model_pipeline.png"
-        echo "矢量图: ${OUTPUT_DIR}/model_pipeline.svg"
+        echo "图像: ${OUTPUT_DIR}/model_pipeline.svg"
+        if (( ${#EXPORT_ARGS[@]} )); then echo "已同时导出 300 DPI PNG"; fi
         ;;
     help|-h|--help)
         echo "MedNeXt 模型分析工具"
@@ -59,6 +70,7 @@ PY
         echo "  graph  生成 Encoder-Decoder 总览图和 MHA/MoE 细节图"
         echo "  pipeline 生成 case提取、预处理、训练损失、推理后处理流程图"
         echo "  help   显示这份命令说明"
+        echo "绘图默认只生成 SVG；graph/pipeline 后加 --png 可同时导出 PNG。"
         echo
         echo "示例："
         echo "  /home/PuMengYu/model.sh check"

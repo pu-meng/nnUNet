@@ -29,9 +29,10 @@ checkpoint，也不改变任何实验配置。
 /home/PuMengYu/model.sh graph
 ```
 
-会生成一张可放大查看的完整结构工作图；图中的 shape、skip/add、Stage/Block
-内部、Top-2 路由和四个实际计算的 routed experts 按当前代码绘制。输出目录只保留
-一份结构 PNG/SVG、一个流程 PNG/SVG、Markdown 说明和 JSON 结构数据。
+会生成可放大查看的结构总览和 MHA/MoE 细节图；图中的 shape、skip/add、
+Stage/Block 内部、Top-2 路由和四个实际计算的 routed experts 按当前代码绘制。
+成品统一放在 [`../../notes/模型结构图/`](../../notes/模型结构图/README.md)，
+与论文图片目录分开。
 
 如果要看 case 如何经过预处理、patch/增强、网络、损失函数、滑窗推理和后处理：
 
@@ -39,7 +40,7 @@ checkpoint，也不改变任何实验配置。
 /home/PuMengYu/model.sh pipeline
 ```
 
-它生成 `output/model_pipeline.png` 和 `output/model_pipeline.svg`，不训练、不读取病例。
+它在 `pumengyu/notes/模型结构图/` 默认只生成 `model_pipeline.svg`，不训练、不读取病例。旧路径 `output/` 是通向该目录的软链接。
 
 ## 第一版：静态结构审计
 
@@ -50,8 +51,8 @@ checkpoint，也不改变任何实验配置。
 
 输出：
 
-- `output/model_architecture.md`：适合人工阅读的结构说明和研究问题清单；
-- `output/model_architecture.json`：供后续画图和分析脚本读取的结构数据。
+- `pumengyu/notes/模型结构图/model_architecture.md`：适合人工阅读的结构说明和研究问题清单；
+- `pumengyu/notes/模型结构图/model_architecture.json`：供后续画图和分析脚本读取的结构数据。
 
 默认只构建网络并检查模块，不跑 GPU、不加载数据、不启动训练。
 
@@ -66,3 +67,5 @@ checkpoint，也不改变任何实验配置。
 
 参数量不等于计算量；优化建议必须再用受控 forward/backward profiler 验证。
 第一版把“可能的改进问题”写出来，但不把它们当成已经证实的结论。
+
+日常绘图默认只输出 SVG；分析或论文需要 PNG 时，用 `./model.sh graph --png` 或 `./model.sh pipeline --png` 同时导出。

@@ -338,159 +338,18 @@ torch.cuda.device(0)
 
 ---
 
-##### 实战：IBConv(k=7) 为什么比 baseline 慢 6×
+## IB7：一次历史 profiling 观察
 
-###### 背景
+2026-06-19 的旧记录：`MLAUNet_MoE_SizeOversampleV4` 约 48 s/epoch，`MLAUNet_MoE_IB7_SizeOversampleV4` 约 288 s/epoch。原始报告路径为 `~/nnUNet_workspace/profiling/ib7.nsys-rep`；`.nsys-rep` 是原始采样，`nsys stats` 生成的 `.sqlite` 可重建。本次整理没有重新运行或核对原始报告。
 
-| Trainer | 架构 | 实测速度 |
-|---------|------|---------|
-| `MLAUNet_MoE_SizeOversampleV4`（baseline） | 标准 Conv3d(k=3) | ~48 s/epoch |
-| `MLAUNet_MoE_IB7_SizeOversampleV4` | IBConv(k=7) | ~288 s/epoch（**6× 慢**）|
+| 当时导出的 kernel | GPU kernel 时间占比 |
+|---|---:|
+| `conv_depthwise3d_cuda_backward_input_kernel` | 35.6% |
+| `conv_depthwise3d_cuda_backward_weight_kernel` 三个变体 | 16.9% + 13.7% + 4.1% |
+| `conv_depthwise3d_cuda_kernel` | 13.3% |
+| depthwise 合计 | **约 83.6%** |
+| `ampere_fp16_s16816gemm_*` 三个变体 | 约 1.5% |
 
-IBConv 结构（stride=1 处）：
-```
-DW Conv3d(C, k=7, groups=C, s=1)   ← 大核 depthwise，无 Tensor Core
-PW Conv3d(C → 4C, 1×1×1)           ← pointwise expand，可用 Tensor Core
-PW Conv3d(4C → C, 1×1×1)           ← pointwise compress，可用 Tensor Core
-```
+另一份旧汇总将 depthwise 合计记为约 84%，采样窗口与导出口径未复核。可确认的观察是：该次分析中，前向和反向 depthwise kernel 占主要时间；pointwise GEMM 占比很小。仅凭这张时间分布表，无法区分低 Tensor Core 利用率、大核访存量、kernel 调度等因素各自的贡献。若要做瓶颈归因，应从原始报告重新导出，并用 NCU 检查目标 depthwise kernel 的访存与 stall 指标。
 
-DW 用不上 Tensor Core 的根本原因（im2col 视角）：
-```
-标准 Conv：W=[C_out, C_in×k³]，M=C_out=128 → Tensor Core ✓
-depthwise：每通道独立，W_c=[1, k³]，M=1     → Tensor Core 要求 M≥16 ✗
-
-各通道无法合并进同一矩阵乘（不同通道用不同输入数据和权重）
-→ 只能做 C 个独立的 [1,k³]×[k³,spatial] 矩阵乘
-→ 每次 M=1，Tensor Core 完全闲置，退回 CUDA Core
-```
-
-慢的可能原因有三个，profiling 前不确定哪个是主因：
-1. DW 用不上 Tensor Core，CUDA Core 算力弱
-2. k=7 大核每个输出位置读 k³=343 个输入值，访存量是 k=3 的 12.7 倍
-3. PW expand/compress（C→4C→C）是 baseline 完全没有的额外计算
-
-###### 第一步：nsys 对比两个 Trainer 的 kernel 时间分布
-
-```bash
-#### 第一步：分别录制两个 Trainer（各自运行，不能同时）
-#### baseline
-CUDA_VISIBLE_DEVICES=0 nsys profile \
-  --output ~/nnUNet_workspace/profiling/baseline \
-  --trace cuda,nvtx \
-  --delay 60 \
-  --duration 30 \
-  /home/PuMengYu/anaconda3/envs/medseg/bin/python \
-  -m nnunetv2.run.run_training Dataset003_Liver 3d_fullres 0 \
-  -tr nnUNetTrainer_MLAUNet_MoE_SizeOversampleV4
-
-#### IB7
-CUDA_VISIBLE_DEVICES=0 nsys profile \
-  --output ~/nnUNet_workspace/profiling/ib7 \
-  --trace cuda,nvtx \
-  --delay 60 \
-  --duration 30 \
-  /home/PuMengYu/anaconda3/envs/medseg/bin/python \
-  -m nnunetv2.run.run_training Dataset003_Liver 3d_fullres 0 \
-  -tr nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4
-
-#### 第二步：分析（两个文件各自分析，对比结果）
-nsys stats ~/nnUNet_workspace/profiling/baseline.nsys-rep --report gpukernsum | head -20
-nsys stats ~/nnUNet_workspace/profiling/ib7.nsys-rep --report gpukernsum | head -20
-```
-
-**解读 kernel 名字**：
-
-```
-Tensor Core 路径（标准 conv，有 Winograd / GEMM 优化）：
-  ampere_fp16_s1688gemm_*      ← FP16 Tensor Core GEMM
-  ampere_fp16_s16816gemm_*     ← 同上，不同 tile 配置
-  cudnn_winograd_nonfused_*    ← Winograd 路径（k=3, s=1 专用）
-
-depthwise / CUDA Core 路径（无 Tensor Core）：
-  cudnn_grouped_direct_*       ← depthwise 直接卷积，无优化
-  implicit_convolveNd_*        ← implicit GEMM fallback，小矩阵退化
-  vectorized_elementwise_*     ← 逐元素操作，纯 CUDA Core
-
-结论判断：
-  IB7 里 cudnn_grouped_direct 或 implicit_convolveNd 占大头时间
-  → DW 部分是主因（Tensor Core 用不上 + 大核访存多）
-
-  IB7 里 ampere_fp16_gemm（PW 层）反而是大头
-  → expand/compress 新增 FLOPs 是主因
-```
-
-###### 实测结果：IB7 nsys kernel 时间分布（已完成）
-
-用以下命令转换已有的 `.qdstrm` 文件（nsys importer 二进制在 `/usr/lib/nsight-systems/host-linux-x64/QdstrmImporter`，但 nsys 调用时找不到它，直接手动调用）：
-
-```bash
-/usr/lib/nsight-systems/host-linux-x64/QdstrmImporter \
-  -i ~/nnUNet_workspace/profiling/ib7.qdstrm \
-  -o ~/nnUNet_workspace/profiling/ib7.nsys-rep -f
-
-nsys stats ~/nnUNet_workspace/profiling/ib7.nsys-rep --report gpukernsum | head -30
-```
-
-**实测 Top kernel（2026-06-19，Dataset003_Liver，fold_0）**：
-
-| 占比 | kernel 名 | 类型 | 说明 |
-|------|----------|------|------|
-| **35.6%** | `conv_depthwise3d_cuda_backward_input_kernel` | CUDA Core | DW 反向：input gradient |
-| **16.9%** | `conv_depthwise3d_cuda_backward_weight_kernel` | CUDA Core | DW 反向：weight gradient（变体1） |
-| **13.7%** | `conv_depthwise3d_cuda_backward_weight_kernel` | CUDA Core | DW 反向：weight gradient（变体2） |
-| **13.3%** | `conv_depthwise3d_cuda_kernel` | CUDA Core | DW 前向 |
-| **4.1%** | `conv_depthwise3d_cuda_backward_weight_kernel` | CUDA Core | DW 反向：weight gradient（变体3） |
-| 1.5% | `nchwToNhwcKernel` | — | 格式转换开销 |
-| 1.5% | `triton__0d1d2de` | Triton | 激活/归一化 |
-| 0.5%×3 | `ampere_fp16_s16816gemm_*` | **Tensor Core** | PW 1×1 卷积 |
-| **合计 83.6%** | **所有 depthwise 相关** | **CUDA Core** | — |
-
-**结论（确认）**：
-- **83.6%** 的 GPU 时间花在 depthwise k=7 卷积（前向 + 反向）——全部是 CUDA Core 标量路径
-- Tensor Core (`ampere_fp16_s16816gemm`) 总共只占 **~1.5%**，虽然 PW 1×1 能用 Tensor Core，但它不是时间主体
-- 三个 depthwise 的原因都同时成立（CUDA Core 算力弱 + 大核访存多），但**主因是 DW 本身无法用 Tensor Core**
-- PyTorch 对 depthwise conv 有 3 种 backward weight 变体（对应不同的 block size 配置），说明 autograd 在不同 spatial size 下用了不同 kernel，但全部是 CUDA Core 路径
-
-###### 第二步：ncu 确认 DW kernel 的具体瓶颈
-
-```bash
-sudo ncu \
-  --metrics smsp__warp_issue_stalled_long_scoreboard_per_warp_active.pct,\
-smsp__warp_issue_stalled_math_pipe_throttle_per_warp_active.pct,\
-sm__throughput.avg.pct_of_peak_sustained_elapsed \
-  --kernel-name "cudnn_grouped\|implicit_convolve" \
-  --launch-skip 200 --launch-count 50 \
-  --target-processes all \
-  /home/PuMengYu/anaconda3/envs/medseg/bin/python \
-  -m nnunetv2.run.run_training Dataset003_Liver 3d_fullres 0 \
-  -tr nnUNetTrainer_MLAUNet_MoE_IB7_SizeOversampleV4
-```
-
-**读数解释**：
-
-| 指标结果 | 含义 | 对应原因 |
-|---------|------|---------|
-| `stall_long_scoreboard` > 50% | 在等 HBM 数据 | k=7 大核访存量大，内存带宽瓶颈 |
-| SM 利用率 < 30%，stall 不高 | CUDA Core 算力本就不足 | Tensor Core 用不上，纯算力差距 |
-| `stall_math_pipe_throttle` 高 | 在等计算单元 | 计算密集，但 CUDA Core 比 Tensor Core 慢 |
-
-###### 预期结论与后续方向
-
-```
-如果主因是 DW 访存（stall_long_scoreboard 高）：
-  → k=7 的访存量是 k=3 的 12.7 倍，且 depthwise 无通道复用
-  → 可尝试 k=5（访存减少 343→125，约 2.7×）
-  → 或改用 dilated conv 替代大核（相同感受野，更小实际核）
-
-如果主因是 PW expand/compress（nsys 里 gemm 占大头）：
-  → expansion ratio 从 4 降到 2（参数量减半，但感受野不变）
-  → 或去掉 expand/compress，改为纯 DW+PW 两层结构
-
-如果两者都有（最可能）：
-  → DW 部分的慢是硬件本质（depthwise 无 Tensor Core），难以绕开
-  → PW 部分可以调 expansion ratio 来控制额外开销
-  → 最终 tradeoff：感受野收益 vs 速度代价
-```
-
-
----
+工具命令集中放在 [NCU / nsys 命令](NCU_nsys命令.md)；卷积实现原理见 [Tensor Core 与卷积实现](TensorCore与卷积实现.md)，结构对照见 [DWSep 与 IBConv](DWSep_vs_IBConv机制.md)。

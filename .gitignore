@@ -115,6 +115,7 @@ ENV/
 *.model
 
 !documentation/assets/scribble_example.png
+!pumengyu/notes/模型结构图/*.png
 
 CLAUDE.md
 AGENTS.md

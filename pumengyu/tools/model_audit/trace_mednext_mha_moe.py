@@ -23,7 +23,7 @@ from pumengyu.architectures.mednext import build_mednext_large_mha
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/tools/model_audit/output"))
+    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/notes/模型结构图"))
     parser.add_argument("--forward", action="store_true", help="Run one CPU shape trace; can be slow for a 128^3 patch.")
     parser.add_argument("--patch-size", nargs=3, type=int, default=[128, 128, 128])
     return parser.parse_args()

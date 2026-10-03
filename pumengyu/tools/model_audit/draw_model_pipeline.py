@@ -50,14 +50,17 @@ def panel(ax, x, y, w, h, title):
     ax.text(x + 0.22, y + h - 0.28, title, ha="left", va="center", fontsize=10, weight="bold", color="#334155")
 
 
-def save(fig, output_dir: Path):
+def save(fig, output_dir: Path, export_png: bool = False):
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / "model_pipeline.svg", bbox_inches="tight")
-    fig.savefig(output_dir / "model_pipeline.png", dpi=300, bbox_inches="tight")
+    if export_png:
+        png_dir = output_dir / "PNG格式"
+        png_dir.mkdir(parents=True, exist_ok=True)
+        fig.savefig(png_dir / "model_pipeline.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
-def draw_pipeline(output_dir: Path):
+def draw_pipeline(output_dir: Path, export_png: bool = False):
     fig, ax = plt.subplots(figsize=(18, 18))
     ax.set_xlim(0, 18)
     ax.set_ylim(0, 18)
@@ -119,14 +122,15 @@ def draw_pipeline(output_dir: Path):
     ax.text(1.0, 2.05, "正式评估还要保留：预测病例清单、summary.json、可读 txt 报告、test_viz/*.png，以及 checkpoint / dataset / fold provenance。", fontsize=7.9, color=COLORS["note"])
     ax.text(1.0, 1.45, "这张流程图与结构图的关系：结构图解释网络内部；本图解释数据和监督信号如何穿过网络并成为可审计结果。", fontsize=8.0, color="#334155")
 
-    save(fig, output_dir)
+    save(fig, output_dir, export_png=export_png)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/tools/model_audit/output"))
+    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/notes/模型结构图"))
+    parser.add_argument("--png", action="store_true", help="Also export 300 DPI PNG for analysis or papers")
     args = parser.parse_args()
-    draw_pipeline(args.output_dir)
+    draw_pipeline(args.output_dir, export_png=args.png)
     print("model pipeline sheet generated")
 
 

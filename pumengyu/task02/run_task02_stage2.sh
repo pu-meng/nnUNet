@@ -10,10 +10,10 @@
 # To explicitly discard an epoch-0 failure with no checkpoint or final
 # evaluation directory, add TASK02_CLEAR_FAILED=1 to the launch command.
 #
-# This file deliberately starts training only. After the run finishes, first
-# inspect task02_manifest.json, task02_validation_history.jsonl and
-# task02_selection.json. The formal LiTS/IRCADb/HCC final evaluation is a
-# separate operation on checkpoint_task02_best.pth.
+# After training succeeds, the script verifies the selection record and starts
+# the formal LiTS/IRCADb/HCC evaluation on checkpoint_task02_best.pth. The
+# evaluation itself performs the final artifact audit and exits non-zero if
+# any domain is incomplete.
 
 set -euo pipefail
 
@@ -31,6 +31,7 @@ case "$TRAINER" in
     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K01|\
     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K03|\
     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K05|\
+    nnUNetTrainer_MedNeXt_MHA_MoE_Distance_Task02_Replay_K05|\
     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K10|\
     nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K70)
         ;;
@@ -91,3 +92,9 @@ echo "[Task02] result root=$nnUNet_results"
 echo "[Task02] Stage-2 source checkpoint is loaded and SHA-checked by the trainer."
 
 nnUNetv2_train 3 3d_fullres 0 -tr "$TRAINER" -num_gpus "$NUM_GPUS" -device cuda
+
+echo "[Task02] training exited successfully; starting formal three-domain evaluation"
+python -m pumengyu.task02.final_evaluation \
+    --trainer "$TRAINER" \
+    --gpu "${CUDA_VISIBLE_DEVICES%%,*}" \
+    --model_results_root "$nnUNet_results"

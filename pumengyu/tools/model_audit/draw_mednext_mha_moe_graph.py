@@ -59,14 +59,17 @@ def plus(ax, x, y):
     ax.text(x, y, "+", ha="center", va="center", fontsize=10, weight="bold", zorder=4)
 
 
-def save(fig, output_dir: Path, stem: str):
+def save(fig, output_dir: Path, stem: str, export_png: bool = False):
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.svg", bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.png", dpi=300, bbox_inches="tight")
+    if export_png:
+        png_dir = output_dir / "PNG格式"
+        png_dir.mkdir(parents=True, exist_ok=True)
+        fig.savefig(png_dir / f"{stem}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
-def draw_overview(output_dir: Path):
+def draw_overview(output_dir: Path, export_png: bool = False):
     fig, ax = plt.subplots(figsize=(11.5, 15))
     ax.set_xlim(0, 11.5)
     ax.set_ylim(0, 16)
@@ -124,10 +127,10 @@ def draw_overview(output_dir: Path):
         arrow(ax, (6.9, dy + h / 2), (dec_x, dy + h / 2), color=COLORS["skip"], dashed=True)
         plus(ax, dec_x, dy + h / 2)
     ax.text(0.25, 0.15, "Solid: forward path   Dashed: encoder skip/add   Shapes use the 128³ source plan.", fontsize=8.5, color="#475569")
-    save(fig, output_dir, "mednext_mha_moe_overview")
+    save(fig, output_dir, "mednext_mha_moe_overview", export_png=export_png)
 
 
-def draw_bottleneck(output_dir: Path):
+def draw_bottleneck(output_dir: Path, export_png: bool = False):
     fig, ax = plt.subplots(figsize=(12, 8.0))
     ax.set_xlim(0, 12)
     ax.set_ylim(0, 8)
@@ -160,15 +163,16 @@ def draw_bottleneck(output_dir: Path):
         arrow(ax, (9.95, y), (6.0, 1.70))
     arrow(ax, (6.70, 1.32), (7.13, 1.32)); arrow(ax, (7.37, 1.32), (7.75, 1.32))
     ax.text(0.60, 0.18, "Code-faithful warning: Top-2 chooses two outputs, but all 4 routed experts are computed before gather.", fontsize=9, color="#7c2d12")
-    save(fig, output_dir, "mednext_mha_moe_bottleneck")
+    save(fig, output_dir, "mednext_mha_moe_bottleneck", export_png=export_png)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/tools/model_audit/output"))
+    parser.add_argument("--output-dir", type=Path, default=Path("pumengyu/notes/模型结构图"))
+    parser.add_argument("--png", action="store_true", help="Also export 300 DPI PNG for analysis or papers")
     args = parser.parse_args()
-    draw_overview(args.output_dir)
-    draw_bottleneck(args.output_dir)
+    draw_overview(args.output_dir, export_png=args.png)
+    draw_bottleneck(args.output_dir, export_png=args.png)
     print("graph generated")
 
 

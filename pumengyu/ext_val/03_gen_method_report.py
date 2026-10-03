@@ -174,12 +174,15 @@ def _checkpoint_identity(dataset: str, trainer: str, fold: int, checkpoint: str)
     )
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"模型 checkpoint 不存在: {checkpoint_path}")
+#import hashlib是Python自带的哈希计算模块
+#
+    digest = hashlib.sha256()#创建SHA-256计算器,digest是一个不断接收文件内容的计算对象
 
-    digest = hashlib.sha256()
     with checkpoint_path.open("rb") as f:
         for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+#每次从checkpoint读取8MB,把当前读取的8MB内容交给SHA-256计算器,
             digest.update(chunk)
-
+#.update是把这一块内容加入哈希计算
     import torch
 
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -195,10 +198,10 @@ def _checkpoint_identity(dataset: str, trainer: str, fold: int, checkpoint: str)
         "checkpoint_mtime": datetime.fromtimestamp(
             checkpoint_path.stat().st_mtime
         ).astimezone().isoformat(timespec="seconds"),
-        "checkpoint_sha256": digest.hexdigest(),
+        "checkpoint_sha256": digest.hexdigest(),#获取最终的哈希值
         "checkpoint_epoch": int(payload.get("current_epoch", -1)),
     }
-
+#digest.hexdigest()是取得截至目前计算出的哈希值,并且转换成容易阅读的十六进制的字符串
 
 def _write_evaluation_provenance(result_dir: Path, identity: dict) -> Path:
     path = result_dir / "evaluation_provenance.json"

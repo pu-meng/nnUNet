@@ -22,9 +22,13 @@ from pumengyu.architectures.umamba import UMambaBot3D
 from pumengyu.architectures.mla_unetr import MLAUNetBot3D, MLAUNetDWBot3D, MLAUNetIBBot3D, IBConvUNet3D, DWSepUNet3D, MLAUNetDWSepResBot3D
 from pumengyu.architectures.mednext import (
     build_mednext_large,
+    build_mednext_large_skip_conv_e1,
+    build_mednext_large_spatial_gate_e2,
+    build_mednext_large_spatial_context_gate_e2,
     build_mednext_large_mla,
     build_mednext_large_mla_plain_conv_decoder,
     build_mednext_large_mha,
+    build_mednext_large_mha_distance,
     build_mednext_large_mla_hcc_adapter,
 )
 from pumengyu.architectures.deep_plain_res_gn import (
@@ -1394,6 +1398,15 @@ class nnUNetTrainer_MedNeXt(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
     结果目录：nnUNetTrainer_MedNeXt__nnUNetPlans__3d_fullres/
     """
 
+    @staticmethod
+    def _deep_supervision_scales_from_configuration(configuration_manager: ConfigurationManager):
+        cumulative = [1, 1, 1]
+        scales = []
+        for stride in configuration_manager.pool_op_kernel_sizes:
+            cumulative = [c * int(s) for c, s in zip(cumulative, stride)]
+            scales.append([1 / c for c in cumulative])
+        return scales[:-1]
+
     @classmethod
     def build_network_architecture(
         cls,
@@ -1416,6 +1429,83 @@ class nnUNetTrainer_MedNeXt(AutoInternalTestMixin, AutoReportMixin, nnUNetTraine
         if isinstance(mod, OptimizedModule):
             mod = mod._orig_mod  # 解包到内层真实模型，否则 torch.compile 追踪内层 do_ds 不变
         mod.do_ds = enabled #type: ignore
+
+
+class nnUNetTrainer_MedNeXt_SkipConv_E1(nnUNetTrainer_MedNeXt):
+    """
+    E1: MedNeXt-L + one identity-initialized 1x1x1 convolution per encoder skip.
+
+    This isolates the effect of adding a learned skip transformation before
+    the decoder add: D_i + Conv1x1x1(E_i). Training, loss, augmentation,
+    and inference behavior are inherited unchanged from nnUNetTrainer_MedNeXt.
+    """
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_skip_conv_e1(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+        )
+
+    def _do_i_compile(self):
+        # PyTorch 2.3 DDPOptimizer cannot compile this checkpointed MedNeXt
+        # graph after the skip-convolution branch is added. Use eager DDP.
+        return False
+
+
+class nnUNetTrainer_MedNeXt_SpatialGate_E2(nnUNetTrainer_MedNeXt):
+    """Legacy E2: MedNeXt-L with decoder-conditioned pointwise skip gating."""
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_spatial_gate_e2(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
+        )
+
+    def _do_i_compile(self):
+        # E2 keeps the same eager DDP path as E1 for a direct current-series comparison.
+        return False
+
+
+class nnUNetTrainer_MedNeXt_SpatialContextGate_E2(nnUNetTrainer_MedNeXt):
+    """E2: MedNeXt-L with decoder-conditioned 3D-context skip filtering."""
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_spatial_context_gate_e2(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
+        )
+
+    def _do_i_compile(self):
+        return False
 
 
 class nnUNetTrainer_MedNeXt_FPSafe(TopKNoTumorFPPenaltyMixin, nnUNetTrainer_MedNeXt):
@@ -1813,6 +1903,34 @@ class nnUNetTrainer_MedNeXt_MHA_MoE(nnUNetTrainer_MedNeXt_MHA):
     MHA_USE_MOE: bool = True
 
 
+class nnUNetTrainer_MedNeXt_MHA_MoE_Distance(nnUNetTrainer_MedNeXt_MHA_MoE):
+    """MHA+MoE control with a fixed 3D distance weight at the bottleneck."""
+
+    # Mild initial locality prior; alpha is a squared-grid-distance decay rate.
+    MHA_DISTANCE_ALPHA: float = 0.01
+
+    @classmethod
+    def build_network_architecture(
+        cls,
+        plans_manager: PlansManager,
+        configuration_manager: ConfigurationManager,
+        num_input_channels: int,
+        num_output_channels: int,
+        enable_deep_supervision: bool = True,
+    ):
+        return build_mednext_large_mha_distance(
+            num_input_channels=num_input_channels,
+            num_output_channels=num_output_channels,
+            enable_deep_supervision=enable_deep_supervision,
+            mha_num_heads=cls.MLA_NUM_HEADS,
+            mha_num_blocks=cls.MLA_NUM_BLOCKS,
+            mha_mlp_ratio=cls.MLA_MLP_RATIO,
+            mha_use_moe=cls.MHA_USE_MOE,
+            mha_distance_alpha=cls.MHA_DISTANCE_ALPHA,
+            deep_supervision_scales=cls._deep_supervision_scales_from_configuration(configuration_manager),
+        )
+
+
 # ------------------------------------------------------------------ #
 # Task 02: few-shot HCC shared-model adaptation                     #
 # ------------------------------------------------------------------ #
@@ -1875,6 +1993,15 @@ class nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K05(
     Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE
 ):
     """Task02 k=5 HCC + LiTS replay full fine-tuning."""
+
+    TASK02_MODE = "replay"
+    TASK02_K = 5
+
+
+class nnUNetTrainer_MedNeXt_MHA_MoE_Distance_Task02_Replay_K05(
+    Task02Stage2Mixin, nnUNetTrainer_MedNeXt_MHA_MoE_Distance
+):
+    """Task02 Replay K=5 with the isolated 3D distance-weighted MHA."""
 
     TASK02_MODE = "replay"
     TASK02_K = 5

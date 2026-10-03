@@ -123,8 +123,8 @@ Replay / K70 upper bound:
 - 指定一个明确 trainer、fold 0、GPU 和结果标签；
 - 只启动一个全新的 Stage-2 run，拒绝覆盖已有 fold 目录；
 - 禁止 `--c`、`--val` 与 `-pretrained_weights`；严格 source loader 已在 trainer 内部执行；
-- 训练结束后，先检查 `task02_manifest.json`、`task02_validation_history.jsonl`、
-  `task02_selection.json`，再对选中的 checkpoint 单独运行三域正式评估。
+- 训练成功后自动检查 `task02_manifest.json`、`task02_validation_history.jsonl`、
+  `task02_selection.json`，并对选中的 checkpoint 自动运行三域正式评估。
 
 ### 5. `final_evaluation.py`
 
@@ -146,11 +146,16 @@ TASK02_CUDA_VISIBLE_DEVICES=0 \
   bash pumengyu/task02/run_task02_stage2.sh \
   nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K03
 
-# 训练完成且选择记录通过后，正式三域评估唯一选中的 checkpoint。
+# 训练成功后会自动检查选择记录并运行正式三域评估；如需单独补评估，仍可执行：
 python -m pumengyu.task02.final_evaluation \
   --trainer nnUNetTrainer_MedNeXt_MHA_MoE_Task02_Replay_K03 \
   --gpu 0 \
   --model_results_root /home/PuMengYu/nnUNet_workspace/results_task02
+
+# 独立空间距离权重消融（MHA + MoE，复用同一 source checkpoint）
+TASK02_CUDA_VISIBLE_DEVICES=1 \
+  bash pumengyu/task02/run_task02_stage2.sh \
+  nnUNetTrainer_MedNeXt_MHA_MoE_Distance_Task02_Replay_K05
 ```
 
 先使用 `--dry_run` 只核验 provenance 并打印正式评估命令；它不会启动预测。

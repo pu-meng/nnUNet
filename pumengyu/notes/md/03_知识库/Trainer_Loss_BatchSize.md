@@ -2,11 +2,7 @@
 
 ## Trainer 登记册
 
-
-#### Trainer 登记册
-
-每次新增 Trainer 类，在此登记一条。  
-**格式**：类名 | 数据集 | 核心思路（一句话）| 关键超参 | 实验目录后缀
+以下是历史 Trainer 登记，不代表当前实验完成状态。实际类与超参以代码为准；正式结果查 [当前结果](../01_当前项目/当前结果与结论.md) 和 [实验档案](../02_实验档案/README.md)。
 
 ---
 
@@ -180,9 +176,6 @@
 
 ## Unified Focal Loss 公式体系完整推导
 
-
-#### Unified Focal Loss 公式体系完整推导
-
 > 基于 Yeung et al., 2021 *"Unified Focal loss: Generalising Dice and cross entropy-based losses to handle class imbalanced medical image segmentation"*
 
 ---
@@ -334,55 +327,8 @@ Asymmetric Unified Focal Loss (L_aUF)
 
 ---
 
-## 对，完全正确。
+## Batch size、step 与 epoch
 
+以 `batch_size=2` 为例：每个训练 step 抽取 2 个 patch，合成形状如 `[2, 1, 128, 128, 128]` 的 batch，做一次前向、loss、反向和参数更新。一个 patch 不必等于一整个 case；同一 case 也可能在不同 step 被再次采样。
 
-对，完全正确。
-
----
-
-##### 确认一下你的理解
-
-```
-batch_size = 2
-↓
-一个step = 抽2个case，各取1个patch，合并成一个batch，算一次梯度更新
-```
-
-**batch_size就是一个step里用几个样本（patch）。**
-
----
-
-##### 完整的一个step流程
-
-```
-step1：
-  抽 case_37 → 随机裁一个patch [1,128,128,128]
-  抽 case_102 → 随机裁一个patch [1,128,128,128]
-  合并 → [2, 1, 128, 128, 128]
-  ↓
-  正向传播
-  ↓
-  算loss
-  ↓
-  反向传播
-  ↓
-  更新一次权重   ← 这才叫完成一个step
-```
-
----
-
-##### 所以三个概念的关系
-
-```
-batch_size = 2      → 一个step用几个patch
-250步               → 一个epoch有几个step
-1000个epoch         → 训练多少轮
-
-总梯度更新次数 = 250 × 1000 = 250,000次
-```
-
-**一句话：batch_size控制每步的宽度，250步控制每轮的长度。**
-
-
----
+若配置为每 epoch 250 step、共 1000 epoch，则计划进行 `250 × 1000 = 250,000` 次参数更新。这里的 step 数是配置值，不是“把训练集完整遍历一遍”的保证。

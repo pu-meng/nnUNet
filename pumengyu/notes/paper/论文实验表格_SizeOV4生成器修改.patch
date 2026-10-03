@@ -1,0 +1,89 @@
+--- a/build_paper_tables.py
++++ b/build_paper_tables.py
+@@ -78,6 +78,13 @@
+     ("Ours: + MLA + MoE", "MedNeXt_MLA_MoE"),
+ ]
+ 
++SIZEOV4_CONTROL = [
++    ("MedNeXt †", "MedNeXt"),
++    ("MedNeXt + SizeOV4 †", "MedNeXt_SizeOV4"),
++    ("Ours: + MLA + MoE", "MedNeXt_MLA_MoE"),
++    ("Ours + SizeOV4", "MedNeXt_MLA_MoE_SizeOV4"),
++]
++
+ COMPLEXITY = [
+     ("EfficientMedNeXt-L", "EfficientMedNeXt-L"),
+     ("MedNeXt", "MedNeXt"),
+@@ -249,7 +256,7 @@
+     lines = [
+         "# 论文实验表格（SegMamba 风格）",
+         "",
+-        "> 数值来自当前审计 CSV/JSON；方法名可直接打开参考论文。粗体为每列最优值，Ours 固定放在最后一行。",
++        "> 数值来自当前审计 CSV/JSON；方法名可直接打开参考论文。粗体为每列最优值，主比较及结构消融中 Ours 固定放在最后一行。",
+         "",
+         "## Table 1. Main comparison: Dice",
+         "",
+@@ -269,7 +276,15 @@
+     ]
+     lines += [
+         "",
+-        "消融表沿用 Avg. Dice、Recall、Precision，以便同时观察平均分割性能和肿瘤检出表现。",
++        "消融表沿用 Avg. Dice、Recall、Precision，以便同时观察平均分割性能和肿瘤检出表现。Table 3 只比较注意力与 FFN 结构，不混入采样策略变量。",
++        "",
++        "## Table 3b. SizeOV4 sampling control",
++        "",
++        *markdown_html_table(SIZEOV4_CONTROL, metrics, ABLATION_METRICS),
++        "",
++        "本表在普通 MedNeXt 和主方法上分别加入 SizeOV4，用于区分结构贡献与采样策略影响。SizeOV4 对 MedNeXt 的 LiTS/IRCADb/HCC Avg. Dice 变化为 `+0.29/+1.11/-5.03` 个百分点；对 Ours 的变化为 `+0.58/+2.50/-0.10` 个百分点，因此不支持“SizeOV4 在三域稳定增益”的结论。",
++        "",
++        "† `MedNeXt` 和 `MedNeXt + SizeOV4` 的 LiTS 指标可由现存 `summary.json` 复核，且报告与 PNG 已保留；但预期 26 例的预测 NIfTI 现均为 0/26，按当前交付规则标记为“部分完成”，不等同于完整产物交付。",
+     ]
+ 
+     bench = {r["method"]: r for r in benchmark["results"]}
+@@ -540,6 +555,17 @@
+         ABLATION_METRICS,
+         r"Avg. Dice denotes $(\mathrm{Liver\ Dice}+\mathrm{Tumor\ Dice})/2$; Recall and Precision are tumor metrics averaged over tumor-positive cases.",
+     )
++    sizeov4_control = latex_metric_table(
++        "Controlled comparison of the SizeOV4 sampling strategy on MedNeXt and the proposed MLA+MoE model.",
++        "tab:sizeov4_control",
++        SIZEOV4_CONTROL,
++        metrics,
++        ABLATION_METRICS,
++        r"SizeOV4 is evaluated separately from the structural ablation. $\dagger$ LiTS metrics are recoverable from retained summaries, reports, and visualizations, but the 26 prediction NIfTI files are not retained (0/26); these two LiTS deliveries are therefore partial.",
++    )
++    sizeov4_control = sizeov4_control.replace(
++        r"\caption{", r"\caption*{\textbf{Table 3b.} ", 1
++    )
+     complexity = rf"""
+ \begin{{table*}}[t]
+ \centering
+@@ -564,7 +590,7 @@
+     replay_rankings = latex_replay_rank_table(metrics)
+     tex = rf"""\documentclass[10pt]{{article}}
+ \usepackage[a4paper,margin=15mm]{{geometry}}
+-\usepackage{{booktabs,multirow,threeparttable,graphicx}}
++\usepackage{{booktabs,multirow,threeparttable,graphicx,caption}}
+ \usepackage[table]{{xcolor}}
+ \usepackage{{hyperref}}
+ \hypersetup{{colorlinks=true,citecolor=green!45!black,urlcolor=green!45!black}}
+@@ -575,6 +601,8 @@
+ \clearpage
+ {ablation}
+ \clearpage
++{sizeov4_control}
++\clearpage
+ {complexity}
+ \clearpage
+ {rankings}
+@@ -664,6 +689,10 @@
+               p("Bold values indicate the best performance in each column. Ours is placed in the final row following the SegMamba layout.", styles["caption"]),
+               reportlab_metric_table(ABLATION, metrics, ABLATION_METRICS, styles), Spacer(1, 3 * mm),
+               p("SizeOV4 is excluded because it changes the sampling strategy and would confound module attribution.", styles["note"]), PageBreak()]
++    story += [p("Table 3b. Controlled comparison of the SizeOV4 sampling strategy", styles["title"]),
++              p("The same sampling intervention is evaluated on MedNeXt and on the proposed MLA+MoE model.", styles["caption"]),
++              reportlab_metric_table(SIZEOV4_CONTROL, metrics, ABLATION_METRICS, styles), Spacer(1, 3 * mm),
++              p("SizeOV4 changes Avg. Dice by +0.29/+1.11/-5.03 percentage points on MedNeXt and +0.58/+2.50/-0.10 on Ours for LiTS/IRCADb/HCC. † The two MedNeXt LiTS rows retain summaries, reports, and PNGs but not the 26 prediction NIfTI files (0/26), so their delivery status is partial.", styles["note"]), PageBreak()]
+ 
+     bench = {r["method"]: r for r in benchmark["results"]}
+     fields = [("params_m", 3), ("flops_g", 2), ("latency_mean_ms", 2), ("peak_memory_gib", 2)]
